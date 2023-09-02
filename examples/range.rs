@@ -21,6 +21,9 @@ fn some_algorithm_in_zk<F: ScalarField>(
     // `Context` can roughly be thought of as a single-threaded execution trace of a program we want to ZK prove. We do some post-processing on `Context` to optimally divide the execution trace into multiple columns in a PLONKish arithmetization
     // More advanced usage with multi-threaded witness generation is possible, but we do not explain it here
 
+    // The default constructor for RangeChip requires an additional parameter lookup_bits.
+    //  For compatibility with some automatic circuit setup stuff hidden in the scaffold::mock function,
+    //  you should always get this from the environmental variable LOOKUP_BITS:
     // lookup bits must agree with the size of the lookup table, which is specified by an environmental variable
     let lookup_bits =
         var("LOOKUP_BITS").unwrap_or_else(|_| panic!("LOOKUP_BITS not set")).parse().unwrap();

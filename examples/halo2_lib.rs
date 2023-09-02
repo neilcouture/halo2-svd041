@@ -51,7 +51,8 @@ fn some_algorithm_in_zk<F: ScalarField>(
     make_public.push(out);
     // ==== way 2 =======
     // here is a more optimal way to compute x^2 + 72 using the lower level `assign_region` API:
-    let val = *x.value() * x.value() + c;
+    // why do you only need to dereference the left pointer??
+    let val: F = *x.value() * x.value() + c;
     let _val_assigned =
         ctx.assign_region_last([Constant(c), Existing(x), Existing(x), Witness(val)], [0]);
     // the `[0]` tells us to turn on a vertical `a + b * c = d` gate at row position 0.
