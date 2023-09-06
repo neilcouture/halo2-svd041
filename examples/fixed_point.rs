@@ -6,13 +6,24 @@ use halo2_scaffold::gadget::fixed_point::{FixedPointChip, FixedPointInstructions
 // use halo2_scaffold::scaffold::{mock, prove};
 use std::env::{set_var, var};
 
+use clap::Parser;
+use halo2_scaffold::scaffold::cmd::Cli;
+use halo2_scaffold::scaffold::run;
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CircuitInput {
+    pub x: String, // field element, but easier to deserialize as a string
+}
+
 fn some_algorithm_in_zk<F: ScalarField>(
     ctx: &mut Context<F>,
-    x: f64,
+    input: CircuitInput,
     make_public: &mut Vec<AssignedValue<F>>,
 ) where
     F: BigPrimeField,
 {
+    let x = input.x.parse::<f64>().unwrap();
     // `Context` can roughly be thought of as a single-threaded execution trace of a program we want to ZK prove. We do some post-processing on `Context` to optimally divide the execution trace into multiple columns in a PLONKish arithmetization
     // More advanced usage with multi-threaded witness generation is possible, but we do not explain it here
 
@@ -80,9 +91,11 @@ fn some_algorithm_in_zk<F: ScalarField>(
 
 fn main() {
     env_logger::init();
-    // genrally lookup_bits is degree - 1
-    set_var("LOOKUP_BITS", 12.to_string());
-    set_var("DEGREE", 13.to_string());
+
+    let args = Cli::parse();
+
+    // run different zk commands based on the command line arguments
+    run(some_algorithm_in_zk, args); // use DEGREE=10, otherwise panics
 
     // run mock prover
     // mock(some_algorithm_in_zk, -12.0);
