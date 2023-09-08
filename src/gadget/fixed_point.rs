@@ -581,6 +581,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> FixedPointInstructions<F, PREC
         let b = b.into();
 
         let ab = self.gate().mul(ctx, a, b);
+        // this step can be batched for multiple multiplications I think- like inner product
         let (res, _) = self.signed_div_scale(ctx, ab);
 
         res
