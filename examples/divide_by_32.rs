@@ -128,3 +128,8 @@ fn main() {
 // https://hackmd.io/@axiom/Hyy0zw6j2
 // exercise solutions at
 // https://github.com/axiom-crypto/halo2-scaffold/compare/main...os/exercises
+
+// halo2-scaffold-
+// https://github.com/axiom-crypto/halo2-scaffold
+// Halo2 challenge API
+// https://hackmd.io/@axiom/SJw3p-qX3
