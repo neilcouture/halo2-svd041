@@ -23,6 +23,8 @@ fn hash_two<F: ScalarField>(
 
     // create a Gate chip that contains methods for basic arithmetic operations
 
+    // T, R_F, R_P values correspond to POSEIDON-128 values given in Table 2 of the paper
+    // also see: https://www.poseidon-hash.info/
     const T: usize = 3;
     const RATE: usize = 2;
     const R_F: usize = 8;
