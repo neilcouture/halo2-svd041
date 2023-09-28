@@ -218,6 +218,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
         a: &Self,
         b: &Self,
         c: &Self,
+        init_rand: AssignedValue<F>,
         tol: f64,
     ) {
         assert!(tol > 0.0);
@@ -233,7 +234,8 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
         let num_hash_per_rnd = (d - 1) / RAND_PER_HASH + 1; // -1 because we want just M hashes at d= M*RAND_PER_HASH
 
         // this will determine probability of error for the randomized algorithm
-        const NUM_RNDS: usize = 5;
+        // currently set to 2^-30 ~ 1e-9
+        const NUM_RNDS: usize = 1;
 
         let gate: &GateChip<F> = &fpchip.gate.gate;
         // declare norm_est_sum and contrain it
@@ -246,13 +248,6 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
         const R_F: usize = 8;
         const R_P: usize = 57;
 
-        // for now create init_rand = hash(0);
-        let init_val = F::zero();
-        let init_val = ctx.load_witness(init_val);
-        let mut poseidon = PoseidonChip::<F, T, RATE>::new(ctx, R_F, R_P).unwrap();
-        poseidon.update(&[init_val]);
-        let init_rand = poseidon.squeeze(ctx, gate).unwrap();
-        // dbg!(init_rand.value());
         // list of hashes used in a round
         let mut hash_list: Vec<AssignedValue<F>> = vec![init_rand];
 
@@ -350,6 +345,30 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
         // have to explicitly use quantization here
         let quant_tol = (tol * (2u64.pow(PRECISION_BITS) as f64)) as u64;
         fpchip.gate.check_less_than_safe(ctx, norm_sq_est, quant_tol);
+    }
+
+    /// hash all the matrices in the given list
+    fn hash_matrix_list(
+        ctx: &mut Context<F>,
+        gate: &GateChip<F>,
+        matrix_list: Vec<&Self>,
+    ) -> AssignedValue<F> {
+        // T, R_F, R_P values correspond to POSEIDON-128 values given in Table 2 of the Poseidon hash paper
+        const T: usize = 3;
+        const RATE: usize = 2;
+        const R_F: usize = 8;
+        const R_P: usize = 57;
+
+        // MODE OF USE: we will update the poseidon chip with all the values and then extract one value
+        let mut poseidon = PoseidonChip::<F, T, RATE>::new(ctx, R_F, R_P).unwrap();
+        for mat in matrix_list {
+            for row in &mat.matrix {
+                poseidon.update(row);
+            }
+        }
+        let init_rand = poseidon.squeeze(ctx, gate).unwrap();
+        // dbg!(init_rand.value());
+        return init_rand;
     }
 }
 
@@ -593,47 +612,58 @@ fn some_algorithm_in_zk<F: ScalarField>(
     }
     let c = c;
 
-    println!("a = ");
-    print!("[");
-    for i in 0..N {
-        print!("[");
-        for j in 0..K {
-            print!("{:.2}, ", a[i][j]);
-        }
-        print!("],\n");
-    }
-    print!("]\n");
+    // println!("a = ");
+    // print!("[");
+    // for i in 0..N {
+    //     print!("[");
+    //     for j in 0..K {
+    //         print!("{:.2}, ", a[i][j]);
+    //     }
+    //     print!("],\n");
+    // }
+    // print!("]\n");
 
-    println!("b = ");
-    print!("[");
-    for i in 0..K {
-        print!("[");
-        for j in 0..M {
-            print!("{:.2}, ", b[i][j]);
-        }
-        print!("],\n");
-    }
-    print!("]\n");
+    // println!("b = ");
+    // print!("[");
+    // for i in 0..K {
+    //     print!("[");
+    //     for j in 0..M {
+    //         print!("{:.2}, ", b[i][j]);
+    //     }
+    //     print!("],\n");
+    // }
+    // print!("]\n");
 
-    println!("c = ");
-    print!("[");
-    for i in 0..N {
-        print!("[");
-        for j in 0..M {
-            print!("{:.2}, ", c[i][j]);
-        }
-        print!("],\n");
-    }
-    print!("]\n");
+    // println!("c = ");
+    // print!("[");
+    // for i in 0..N {
+    //     print!("[");
+    //     for j in 0..M {
+    //         print!("{:.2}, ", c[i][j]);
+    //     }
+    //     print!("],\n");
+    // }
+    // print!("]\n");
 
     let a = ZkMatrix::new(ctx, &fpchip, &a);
     let b = ZkMatrix::new(ctx, &fpchip, &b);
     let c = ZkMatrix::new(ctx, &fpchip, &c);
 
-    ZkMatrix::verify_mul(ctx, &fpchip, &a, &b, &c, 1e-3);
+    // hashing requires ~1000 cells per element
+    let init_rand = ZkMatrix::hash_matrix_list(ctx, gate, vec![&a, &b, &c]);
+    // dbg!(init_rand.value());
+    ZkMatrix::verify_mul(ctx, &fpchip, &a, &b, &c, init_rand, 1e-3);
+
+    // number of advice columns seems to grow as 7200*dim^2- with 5 hashes
+    // 26000*dim^2 with 30 hashes
+    // 3000 would just be from init_hash
+    // 2000 per hash- only 30*2000 overall
+    // 777 from a single vector multiplication
 }
 
 fn main() {
+    set_var("LOOKUP_BITS", 12.to_string());
+
     env_logger::init();
 
     let args = Cli::parse();
