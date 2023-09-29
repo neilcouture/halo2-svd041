@@ -235,7 +235,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
 
         // this will determine probability of error for the randomized algorithm
         // currently set to 2^-30 ~ 1e-9
-        const NUM_RNDS: usize = 1;
+        const NUM_RNDS: usize = 30;
 
         let gate: &GateChip<F> = &fpchip.gate.gate;
         // declare norm_est_sum and contrain it
@@ -292,17 +292,17 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
         // let dist_sq_dq = fpchip.dequantization(*dist_sq.value());
         // println!("The dist is= {dist_sq_dq}");
 
-        println!("Est sum error= {:?}", fpchip.dequantization(*norm_sq_est_sum.value()));
+        // println!("Est sum error= {:?}", fpchip.dequantization(*norm_sq_est_sum.value()));
 
         norm_sq_est_sum = fpchip.qadd(ctx, norm_sq_est_sum, dist_sq);
 
-        println!("Est sum error= {:?}", fpchip.dequantization(*norm_sq_est_sum.value()));
+        // println!("Est sum error= {:?}", fpchip.dequantization(*norm_sq_est_sum.value()));
 
         // the commitment for all randomness so far
         let mut prev_rand = hash_list[hash_list.len() - 1];
 
         for _ in 1..NUM_RNDS {
-            println!("start rand = {:?}", prev_rand.value());
+            // println!("start rand = {:?}", prev_rand.value());
             let mut poseidon = PoseidonChip::<F, T, RATE>::new(ctx, R_F, R_P).unwrap();
             // use old hash and the results of previous computation to compute next hash
             poseidon.update(&[prev_rand, norm_sq_est_sum]);
@@ -333,7 +333,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
             let dist_sq = c_times_v._dist_square(ctx, fpchip, &ab_times_v.v);
 
             norm_sq_est_sum = fpchip.qadd(ctx, norm_sq_est_sum, dist_sq);
-            println!("Est sum error= {:?}", fpchip.dequantization(*norm_sq_est_sum.value()));
+            // println!("Est sum error= {:?}", fpchip.dequantization(*norm_sq_est_sum.value()));
             prev_rand = hash_list[hash_list.len() - 1];
         }
 
@@ -344,7 +344,8 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
         // should depend on size of matrix; make sizes constant
         // have to explicitly use quantization here
         let quant_tol = (tol * (2u64.pow(PRECISION_BITS) as f64)) as u64;
-        fpchip.gate.check_less_than_safe(ctx, norm_sq_est, quant_tol);
+        // TODO: uncomment this
+        // fpchip.gate.check_less_than_safe(ctx, norm_sq_est, quant_tol);
     }
 
     /// hash all the matrices in the given list
@@ -369,6 +370,35 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
         let init_rand = poseidon.squeeze(ctx, gate).unwrap();
         // dbg!(init_rand.value());
         return init_rand;
+    }
+
+    /// Computes the product of matrices [a] and [b] using O(N^3) trivial algorithm
+    /// Outputs [c] = [a][b]
+    pub fn trivial_mul(
+        ctx: &mut Context<F>,
+        fpchip: &FixedPointChip<F, PRECISION_BITS>,
+        a: &Self,
+        b: &Self,
+    ) -> Self {
+        assert_eq!(a.num_col, b.num_rows);
+
+        let mut c: Vec<Vec<AssignedValue<F>>> = Vec::new();
+
+        for i in 0..a.num_rows {
+            let mut new_row: Vec<AssignedValue<F>> = Vec::new();
+            for j in 0..b.num_col {
+                let mut new_ele = ctx.load_witness(F::from(0));
+                fpchip.gate().assert_is_const(ctx, &new_ele, &F::zero());
+                for k in 0..a.num_col {
+                    // this step will call qmul N times!!
+                    let prod = fpchip.qmul(ctx, a.matrix[i][k], b.matrix[k][j]);
+                    new_ele = fpchip.qadd(ctx, new_ele, prod);
+                }
+                new_row.push(new_ele);
+            }
+            c.push(new_row);
+        }
+        return Self { matrix: c, num_rows: a.num_rows, num_col: b.num_col };
     }
 }
 
@@ -561,7 +591,7 @@ fn convert_vec<F: BigPrimeField, const PRECISION_BITS: u32>(
     return ZkVector { v: rv };
 }
 
-fn some_algorithm_in_zk<F: ScalarField>(
+fn zk_random_verif_algo<F: ScalarField>(
     ctx: &mut Context<F>,
     input: CircuitInput,
     make_public: &mut Vec<AssignedValue<F>>,
@@ -573,9 +603,9 @@ fn some_algorithm_in_zk<F: ScalarField>(
     // fixed-point exp arithmetic
     let fpchip = FixedPointChip::<F, PRECISION_BITS>::default(lookup_bits);
     let gate = &fpchip.gate.gate;
-    const N: usize = 5;
-    const M: usize = 5;
-    const K: usize = 5;
+    const N: usize = 20;
+    const M: usize = 20;
+    const K: usize = 20;
 
     let mut rng = rand::thread_rng();
     let mut a: Vec<Vec<f64>> = Vec::new();
@@ -649,16 +679,136 @@ fn some_algorithm_in_zk<F: ScalarField>(
     let b = ZkMatrix::new(ctx, &fpchip, &b);
     let c = ZkMatrix::new(ctx, &fpchip, &c);
 
+    // TODO: initial hashing
+    // manual hash of all matrix elements
     // hashing requires ~1000 cells per element
-    let init_rand = ZkMatrix::hash_matrix_list(ctx, gate, vec![&a, &b, &c]);
+    // let init_rand = ZkMatrix::hash_matrix_list(ctx, gate, vec![&a, &b, &c]);
     // dbg!(init_rand.value());
+
+    // init_rand = hash(a[0][0])
+    const T: usize = 3;
+    const RATE: usize = 2;
+    const R_F: usize = 8;
+    const R_P: usize = 57;
+    let mut poseidon = PoseidonChip::<F, T, RATE>::new(ctx, R_F, R_P).unwrap();
+    let elem = a.matrix[0][0].clone();
+    poseidon.update(&[elem]);
+    let init_rand = poseidon.squeeze(ctx, gate).unwrap();
     ZkMatrix::verify_mul(ctx, &fpchip, &a, &b, &c, init_rand, 1e-3);
 
     // number of advice columns seems to grow as 7200*dim^2- with 5 hashes
     // 26000*dim^2 with 30 hashes
     // 3000 would just be from init_hash
-    // 2000 per hash- only 30*2000 overall
-    // 777 from a single vector multiplication
+    // Hashing [NUM_RNDS] times = 2000 per hash- only 30*2000 overall- small
+    // 250 for a single vector multiplication per element
+    // This 250 cost is coming from the rescaling required in qmul (signed_div_scale)
+}
+
+fn zk_trivial_mat_mul<F: ScalarField>(
+    ctx: &mut Context<F>,
+    input: CircuitInput,
+    make_public: &mut Vec<AssignedValue<F>>,
+) {
+    // lookup bits must agree with the size of the lookup table, which is specified by an environmental variable
+    let lookup_bits =
+        var("LOOKUP_BITS").unwrap_or_else(|_| panic!("LOOKUP_BITS not set")).parse().unwrap();
+    const PRECISION_BITS: u32 = 32;
+    // fixed-point exp arithmetic
+    let fpchip = FixedPointChip::<F, PRECISION_BITS>::default(lookup_bits);
+    let gate = &fpchip.gate.gate;
+    const N: usize = 50;
+    const M: usize = 50;
+    const K: usize = 50;
+
+    let mut rng = rand::thread_rng();
+    let mut a: Vec<Vec<f64>> = Vec::new();
+    let mut b: Vec<Vec<f64>> = Vec::new();
+    let mut c: Vec<Vec<f64>> = Vec::new();
+
+    for i in 0..N {
+        let mut row: Vec<f64> = Vec::new();
+        for j in 0..K {
+            row.push(rng.gen_range(-1.0..1.0));
+        }
+        a.push(row);
+    }
+    let a = a;
+    for i in 0..K {
+        let mut row: Vec<f64> = Vec::new();
+        for j in 0..M {
+            row.push(rng.gen_range(-1.0..1.0));
+        }
+        b.push(row);
+    }
+    let b = b;
+
+    for i in 0..N {
+        let mut row: Vec<f64> = Vec::new();
+        for j in 0..M {
+            let mut elem = 0.0;
+            for k in 0..K {
+                elem += a[i][k] * b[k][j];
+            }
+            row.push(elem);
+        }
+        c.push(row);
+    }
+    let c = c;
+
+    // println!("a = ");
+    // print!("[");
+    // for i in 0..N {
+    //     print!("[");
+    //     for j in 0..K {
+    //         print!("{:.2}, ", a[i][j]);
+    //     }
+    //     print!("],\n");
+    // }
+    // print!("]\n");
+
+    // println!("b = ");
+    // print!("[");
+    // for i in 0..K {
+    //     print!("[");
+    //     for j in 0..M {
+    //         print!("{:.2}, ", b[i][j]);
+    //     }
+    //     print!("],\n");
+    // }
+    // print!("]\n");
+
+    // println!("c = ");
+    // print!("[");
+    // for i in 0..N {
+    //     print!("[");
+    //     for j in 0..M {
+    //         print!("{:.2}, ", c[i][j]);
+    //     }
+    //     print!("],\n");
+    // }
+    // print!("]\n");
+
+    let a = ZkMatrix::new(ctx, &fpchip, &a);
+    let b = ZkMatrix::new(ctx, &fpchip, &b);
+    let c = ZkMatrix::trivial_mul(ctx, &fpchip, &a, &b);
+
+    // println!("ZKMatrices:");
+
+    // println!("a = ");
+    // a.print(&fpchip);
+
+    // println!("b = ");
+    // b.print(&fpchip);
+
+    // println!("c = ");
+    // c.print(&fpchip);
+
+    println!("~~~~~Ckt over~~~~~");
+
+    // cells for
+    // N=M=K=20 are 2049200
+    // N=M=K=50 are 32007500
+    // Number of cells grows as 250*N^3
 }
 
 fn main() {
@@ -669,7 +819,7 @@ fn main() {
     let args = Cli::parse();
 
     // run different zk commands based on the command line arguments
-    run(some_algorithm_in_zk, args);
+    run(zk_trivial_mat_mul, args);
 }
 
 // TODO:

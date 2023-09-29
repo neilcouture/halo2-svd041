@@ -10,9 +10,9 @@ use halo2_base::{
 use halo2_scaffold::gadget::fixed_point::{FixedPointChip, FixedPointInstructions};
 use halo2_scaffold::scaffold::cmd::Cli;
 use halo2_scaffold::scaffold::run;
+use poseidon::PoseidonChip;
 use serde::{Deserialize, Serialize};
 use std::env::{set_var, var};
-use poseidon::PoseidonChip;
 
 const T: usize = 3;
 const RATE: usize = 2;
@@ -25,7 +25,7 @@ pub struct CircuitInput {
     pub m: Vec<Vec<f64>>,
     pub u: Vec<Vec<f64>>,
     pub v: Vec<Vec<f64>>,
-     // field element, but easier to deserialize as a string
+    // field element, but easier to deserialize as a string
 }
 
 fn some_algorithm_in_zk<F: ScalarField>(
@@ -35,9 +35,6 @@ fn some_algorithm_in_zk<F: ScalarField>(
 ) where
     F: BigPrimeField,
 {
-   
-   
-    
     // `Context` can roughly be thought of as a single-threaded execution trace of a program we want to ZK prove. We do some post-processing on `Context` to optimally divide the execution trace into multiple columns in a PLONKish arithmetization
     // More advanced usage with multi-threaded witness generation is possible, but we do not explain it here
 
@@ -64,13 +61,12 @@ fn some_algorithm_in_zk<F: ScalarField>(
     zkmatrix.print(&fpchip);
 
     // Lets try to implement Poseidon below
-    
+
     let x = F::from(3456789);
     let y = F::from(221226723898766);
 
     let x = ctx.load_witness(x);
     let y = ctx.load_witness(y);
-
 
     let gate = GateChip::<F>::default();
     let mut poseidon = PoseidonChip::<F, T, RATE>::new(ctx, R_F, R_P).unwrap();
@@ -80,7 +76,7 @@ fn some_algorithm_in_zk<F: ScalarField>(
     println!("x: {:?}, y: {:?}, poseidon(x): {:?}", x.value(), y.value(), hash.value());
 
     // seems to be working ! Lets now generate a vector of o and 1 from the output value of the hash function
-    
+
     let vec_bits = gate.num_to_bits(ctx, hash, 254);
 
     let mut challenge_vec: Vec<AssignedValue<F>> = Vec::new();
@@ -91,7 +87,7 @@ fn some_algorithm_in_zk<F: ScalarField>(
 
     // seems to be working, lets now build d vector by succesively hashing x and y
 
-    let nums =20;
+    let nums = 20;
 
     for _i in 0..nums {
         poseidon.update(&[hash, y]);
@@ -100,16 +96,11 @@ fn some_algorithm_in_zk<F: ScalarField>(
         for r in vec_bits.iter() {
             challenge_vec.push(*r);
         }
-
     }
 
-    let challenge_vec: ZkVector<F, PRECISION_BITS> = ZkVector{v: challenge_vec};
-
-    
+    let challenge_vec: ZkVector<F, PRECISION_BITS> = ZkVector { v: challenge_vec };
 
     //println!("vector of bits: {:?}", vec_bits);
-
-
 
     // SVD check below
 
@@ -117,27 +108,16 @@ fn some_algorithm_in_zk<F: ScalarField>(
     let u = input.u;
     let v = input.v;
 
-    let mq : ZkMatrix<F, PRECISION_BITS> = ZkMatrix::new(ctx, &fpchip, m);
-    let uq : ZkMatrix<F, PRECISION_BITS> = ZkMatrix::new(ctx, &fpchip, u);
-    let vq : ZkMatrix<F, PRECISION_BITS> = ZkMatrix::new(ctx, &fpchip, v);
+    let mq: ZkMatrix<F, PRECISION_BITS> = ZkMatrix::new(ctx, &fpchip, m);
+    let uq: ZkMatrix<F, PRECISION_BITS> = ZkMatrix::new(ctx, &fpchip, u);
+    let vq: ZkMatrix<F, PRECISION_BITS> = ZkMatrix::new(ctx, &fpchip, v);
 
     let d = input.d;
-    let dq : ZkVector<F, PRECISION_BITS> = ZkVector::new(ctx, &fpchip, d);
+    let dq: ZkVector<F, PRECISION_BITS> = ZkVector::new(ctx, &fpchip, d);
 
     ZkMatrix::verify_svd(ctx, &fpchip, &mq, &uq, &dq, &vq, 0.000001);
 
-
-
-
-
     // mat1q.print(&fpchip);
-
-
-
-    
-
-
-
 
     // first we load a number `x` into as system, as a "witness"
     // by default, all numbers in the system are private
@@ -205,7 +185,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkVector<F, PRECISION_BITS> {
     ) -> AssignedValue<F> {
         return self.inner_product(ctx, fpchip, &self.v);
     }
-    
+
     pub fn dist(
         &self,
         ctx: &mut Context<F>,
@@ -288,9 +268,6 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
         print!("]");
     }
 
-   
-
-
     /// Verifies that matrices `a`, `b`, and `c` satisfy `c = a*b`
     pub fn verify_mul(
         ctx: &mut Context<F>,
@@ -305,12 +282,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
         assert_eq!(c.num_rows, a.num_rows);
         assert_eq!(c.num_col, b.num_col);
 
-        for i in 0..k_iter{
-
-
-
-
-        }
+        for i in 0..k_iter {}
 
         // generate a random vector
         let mut v: Vec<f64> = Vec::new();
@@ -325,26 +297,24 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
 
         // ensure that norm between cv and abv is small
     }
-        
-        
-        
-        // Computes by the basic method the product of two matrices a and b
+
+    // Computes by the basic method the product of two matrices a and b
     pub fn matrix_mul(
         ctx: &mut Context<F>,
         fpchip: &FixedPointChip<F, PRECISION_BITS>,
         a: &Self,
         b: &Self,
-    )-> Self {
-
+    ) -> Self {
         assert_eq!(a.num_col, b.num_rows);
 
         let mut c: Vec<Vec<AssignedValue<F>>> = Vec::new();
 
-        for i in 0..a.num_rows{
+        for i in 0..a.num_rows {
             let mut new_row: Vec<AssignedValue<F>> = Vec::new();
-            for j in 0..b.num_col{
+            for j in 0..b.num_col {
+                // Ashutosh: constraint needed here
                 let mut new_ele = ctx.load_witness(F::from(0));
-                for k in 0..a.num_col{
+                for k in 0..a.num_col {
                     let prod = fpchip.qmul(ctx, a.matrix[i][k], b.matrix[k][j]);
                     new_ele = fpchip.qadd(ctx, new_ele, prod);
                 }
@@ -352,38 +322,35 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
             }
             c.push(new_row);
         }
-        return Self { matrix: c, num_rows: a.num_rows, num_col: b.num_col};
-        
+        return Self { matrix: c, num_rows: a.num_rows, num_col: b.num_col };
     }
 
-        // Function for multiplying two matrices a and d were d is diagonal, d is given as a vector
+    // Function for multiplying two matrices a and d were d is diagonal, d is given as a vector
 
     pub fn matrix_mul_diag(
         ctx: &mut Context<F>,
         fpchip: &FixedPointChip<F, PRECISION_BITS>,
         a: &Self,
         d: &ZkVector<F, PRECISION_BITS>,
-    )-> Self {
-
+    ) -> Self {
         let l = ZkVector::size(d);
 
         assert_eq!(a.num_col, l);
 
         let mut c: Vec<Vec<AssignedValue<F>>> = Vec::new();
 
-        for i in 0..a.num_rows{
+        for i in 0..a.num_rows {
             let mut new_row: Vec<AssignedValue<F>> = Vec::new();
-            for j in 0..a.num_col{
+            for j in 0..a.num_col {
                 let prod = fpchip.qmul(ctx, a.matrix[i][j], d.v[j]);
                 new_row.push(prod);
             }
             c.push(new_row);
         }
-        return Self { matrix: c, num_rows: a.num_rows, num_col: a.num_col};
-        
+        return Self { matrix: c, num_rows: a.num_rows, num_col: a.num_col };
     }
 
-        // Verify the product of the two matrices by the naive method up to a small error
+    // Verify the product of the two matrices by the naive method up to a small error
 
     pub fn verify_mul_simple(
         ctx: &mut Context<F>,
@@ -398,13 +365,13 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
         assert_eq!(a.num_col, b.num_rows);
         assert_eq!(c.num_rows, a.num_rows);
         assert_eq!(c.num_col, b.num_col);
-        
+
         let c_check = ZkMatrix::matrix_mul(ctx, fpchip, a, b);
 
         let error = ctx.load_witness(fpchip.quantization(delta));
 
-        for i in 0..c.num_rows{
-            for j in 0..c.num_col{
+        for i in 0..c.num_rows {
+            for j in 0..c.num_col {
                 let ele_dif = fpchip.qsub(ctx, c.matrix[i][j], c_check.matrix[i][j]);
                 let ele_abs = fpchip.qabs(ctx, ele_dif);
                 range.check_less_than(ctx, ele_abs, error, 64);
@@ -412,57 +379,54 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
         }
     }
 
-        // define a function for matrix transpose
+    // define a function for matrix transpose
 
     pub fn transpose_matrix(
         ctx: &mut Context<F>,
         fpchip: &FixedPointChip<F, PRECISION_BITS>,
         a: &Self,
-    )-> Self {
-
+    ) -> Self {
         let mut a_trans: Vec<Vec<AssignedValue<F>>> = Vec::new();
 
-        for i in 0..a.num_col{
+        for i in 0..a.num_col {
             let mut new_row: Vec<AssignedValue<F>> = Vec::new();
-            for j in 0..a.num_rows{
+            for j in 0..a.num_rows {
                 new_row.push(a.matrix[j][i]);
             }
             a_trans.push(new_row);
         }
-        return Self { matrix: a_trans, num_rows: a.num_col, num_col: a.num_rows};
+        return Self { matrix: a_trans, num_rows: a.num_col, num_col: a.num_rows };
     }
 
-        // Verify that a matrix is orthogonal using the two previous functions
+    // Verify that a matrix is orthogonal using the two previous functions
 
     pub fn check_is_ortho(
         ctx: &mut Context<F>,
         fpchip: &FixedPointChip<F, PRECISION_BITS>,
         a: &Self,
-        delta: f64
+        delta: f64,
     ) {
         assert_eq!(a.num_col, a.num_rows);
 
         let mut id_mat_float: Vec<Vec<f64>> = Vec::new();
 
-        for i in 0..a.num_rows{
+        for i in 0..a.num_rows {
             let mut new_row: Vec<f64> = Vec::new();
-            for j in 0..a.num_col{
+            for j in 0..a.num_col {
                 if i == j {
                     new_row.push(1.0);
-                }
-                else {
+                } else {
                     new_row.push(0.0);
                 }
             }
             id_mat_float.push(new_row);
         }
-        
+
         let id_mat = ZkMatrix::new(ctx, fpchip, id_mat_float);
 
         let a_trans = ZkMatrix::transpose_matrix(ctx, fpchip, a);
 
         ZkMatrix::verify_mul_simple(ctx, fpchip, a, &a_trans, &id_mat, delta);
-
     }
 
     // Check that a matrix is upper-triangular
@@ -474,8 +438,8 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
     ) {
         let gate = GateChip::<F>::default();
 
-        for i in 0..a.num_rows{
-            for j in 0..a.num_col{
+        for i in 0..a.num_rows {
+            for j in 0..a.num_col {
                 if i > j {
                     gate.is_zero(ctx, a.matrix[i][j]);
                 }
@@ -492,8 +456,8 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
     ) {
         let gate = GateChip::<F>::default();
 
-        for i in 0..a.num_rows{
-            for j in 0..a.num_col{
+        for i in 0..a.num_rows {
+            for j in 0..a.num_col {
                 if i != j {
                     gate.is_zero(ctx, a.matrix[i][j]);
                 }
@@ -508,11 +472,10 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
         fpchip: &FixedPointChip<F, PRECISION_BITS>,
         m: &Self,
         u: &Self,
-        d: &ZkVector<F,PRECISION_BITS>,
+        d: &ZkVector<F, PRECISION_BITS>,
         v: &Self,
         delta: f64,
     ) {
-        
         ZkMatrix::check_is_ortho(ctx, fpchip, u, delta);
         ZkMatrix::check_is_ortho(ctx, fpchip, v, delta);
 
@@ -531,13 +494,10 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
         r: &Self,
         delta: f64,
     ) {
-        
         ZkMatrix::check_is_ortho(ctx, fpchip, q, delta);
         ZkMatrix::check_is_uppertri(ctx, fpchip, r);
         ZkMatrix::verify_mul_simple(ctx, fpchip, q, r, m, delta);
     }
-
-
 }
 
 fn main() {
