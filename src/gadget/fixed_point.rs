@@ -6,6 +6,7 @@ use halo2_base::{
 };
 use num_bigint::BigUint;
 use num_integer::Integer;
+use std::ops::Mul;
 use std::{fmt::Debug, ops::Sub};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -971,6 +972,62 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> FixedPointInstructions<F, PREC
         self.qpow(ctx, x, half)
     }
 
+    // ORIGINAL VERSION
+    // // This shifts things by 2^precision to the right- useful after multiplying two things
+    // // uses
+    // fn signed_div_scale(
+    //     &self,
+    //     ctx: &mut Context<F>,
+    //     a: impl Into<QuantumCell<F>>,
+    // ) -> (AssignedValue<F>, AssignedValue<F>) {
+    //     // a = b * q + r, r in [0, b), q in [-2^n, 2^n]
+    //     let a = a.into();
+    //     // b = 2^p
+    //     let b = fe_to_biguint(&self.quantization_scale);
+    //     // 252 = 63 * 4
+    //     // the raw result of multiplying two positive or negative numbers is at most 252 bit
+    //     // similarly the raw result of multiplying two oppositely signed numbers is p - (something 252 bit)
+    //     // p is at least 254 bit- I think
+    //     // 2^254-2^252 > 2^252
+    //     // is_neg only on BigInt - so not costly yet
+    //     // because of the above reasoning this correctly calculates whether a is supposed to be negative or not
+    //     let a_is_neg = fe_to_biguint(a.value()) > BigUint::from(2u32).pow(252u32);
+    //     let (q, r) = if a_is_neg {
+    //         let a_abs = fe_to_biguint(&(self.bn254_max - a.value() + F::one()));
+    //         let q = fe_to_biguint(&self.bn254_max) - a_abs.div_ceil(&b) + BigUint::from(1u32);
+    //         let r = fe_to_biguint::<F>(a.value())
+    //             - fe_to_biguint::<F>(
+    //                 &(biguint_to_fe::<F>(&b.clone()) * biguint_to_fe::<F>(&q.clone())),
+    //             );
+    //         // assert!(*a.value() == biguint_to_fe::<F>(&b) * biguint_to_fe::<F>(&q) + biguint_to_fe::<F>(&r));
+    //         (q, r)
+    //     } else {
+    //         fe_to_biguint(a.value()).div_mod_floor(&b)
+    //     };
+    //     // up to this point no constraints have been added; so none of this costs anything
+    //     ctx.assign_region(
+    //         [
+    //             Witness(biguint_to_fe(&r)),
+    //             Constant(biguint_to_fe(&b)),
+    //             Witness(biguint_to_fe(&q)),
+    //             a,
+    //         ],
+    //         [0],
+    //     );
+    //     let rem = ctx.get(-4);
+    //     let div = ctx.get(-2);
+
+    //     self.range_gate().check_big_less_than_safe(ctx, rem, b);
+    //     // a < 2^{4p}, b = 2^p, so |q| < 2^{3p}
+    //     let bound = BigUint::from(2u32).pow(PRECISION_BITS * 3 as u32);
+    //     let div_abs = self.qabs(ctx, div); // very costly!!!
+    //     self.range_gate().check_big_less_than_safe(ctx, div_abs, bound);
+
+    //     (div, rem)
+    // }
+
+    // EXPERIMENTAL- THIS VERSION GETS RID OF QABS CALL
+    // with this change it requires ~94 cells per qmul
     // This shifts things by 2^precision to the right- useful after multiplying two things
     // uses
     fn signed_div_scale(
@@ -1015,11 +1072,15 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> FixedPointInstructions<F, PREC
         let rem = ctx.get(-4);
         let div = ctx.get(-2);
 
+        // lookup constraint
         self.range_gate().check_big_less_than_safe(ctx, rem, b);
         // a < 2^{4p}, b = 2^p, so |q| < 2^{3p}
-        let bound = BigUint::from(2u32).pow(PRECISION_BITS * 3 as u32);
-        let div_abs = self.qabs(ctx, div); // very costly!!!
-        self.range_gate().check_big_less_than_safe(ctx, div_abs, bound);
+        let abs_bound = BigUint::from(2u32).pow(PRECISION_BITS * 3 as u32);
+        let new_bound = abs_bound.clone() * BigUint::from(2u32) - BigUint::from(1u32);
+        let div_plus_bound = self.gate().add(ctx, div, Constant(biguint_to_fe(&abs_bound)));
+
+        // lookup constraint
+        self.range_gate().check_big_less_than_safe(ctx, div_plus_bound, new_bound);
 
         (div, rem)
     }
