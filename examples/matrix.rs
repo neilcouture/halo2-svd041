@@ -80,13 +80,15 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkVector<F, PRECISION_BITS> {
     ) -> AssignedValue<F> {
         // couldn't figure out how to use inner_product of fpchip because we use x: &Vec I didn't want to move
         assert!(self.size() == x.len());
-        // TODO!: following seems unecessary
-        let mut res = fpchip.qadd(ctx, Constant(F::zero()), Constant(F::zero()));
+        let mut res_s = ctx.load_witness(F::zero());
+        fpchip.gate().assert_is_const(ctx, &res_s, &F::zero());
         for i in 0..self.size() {
-            let ai_bi = fpchip.qmul(ctx, self.v[i], x[i]);
-            res = fpchip.qadd(ctx, res, ai_bi);
+            let ai_bi_s = fpchip._qmul_unscaled(ctx, self.v[i], x[i]);
+            // low level adding stuff - everything is multiplied by S= quantisation factor
+            res_s = fpchip.gate().add(ctx, res_s, ai_bi_s);
         }
-
+        // Implementing this way allows us to amortize the cost of calling this expensive rescaling- will also lead to more accuracy
+        let (res, _) = fpchip.signed_div_scale(ctx, res_s);
         return res;
     }
 
@@ -274,10 +276,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
             rand_bin_vec.append(&mut new_rand);
         }
 
-        // Do not need to explicitly calculate this vector v
-        // let v = convert_vec(ctx, &fpchip, &rand_bin_vec, Some(d));
-        // println!("The random vector is: ");
-        // v.print(&fpchip);
+        // Do not need to explicitly calculate the conversion of this vector to {-1, 1} vector- but we call this converted vector v
 
         let c_times_v = _matrix_times_bin_vec(ctx, &fpchip.gate(), &c, &rand_bin_vec);
         let b_times_v = _matrix_times_bin_vec(ctx, &fpchip.gate(), &b, &rand_bin_vec);
@@ -636,6 +635,70 @@ fn test_zkvector<F: ScalarField>(
     zku2.print(&fpchip);
 }
 
+/// useful for optimising cost and testing
+fn test_zkvector_times_matrix<F: ScalarField>(
+    ctx: &mut Context<F>,
+    input: CircuitInput,
+    make_public: &mut Vec<AssignedValue<F>>,
+) where
+    F: BigPrimeField,
+{
+    // lookup bits must agree with the size of the lookup table, which is specified by an environmental variable
+    let lookup_bits =
+        var("LOOKUP_BITS").unwrap_or_else(|_| panic!("LOOKUP_BITS not set")).parse().unwrap();
+    const PRECISION_BITS: u32 = 32;
+    // fixed-point exp arithmetic
+    let fpchip = FixedPointChip::<F, PRECISION_BITS>::default(lookup_bits);
+
+    const N: usize = 10;
+    const M: usize = 10;
+    let mut rng = rand::thread_rng();
+
+    let mut matrix: Vec<Vec<f64>> = Vec::new();
+    for i in 0..N {
+        let mut row: Vec<f64> = Vec::new();
+        for j in 0..M {
+            row.push(rng.gen_range(-1.0..1.0));
+        }
+        matrix.push(row);
+    }
+
+    let zkmatrix: ZkMatrix<F, PRECISION_BITS> = ZkMatrix::new(ctx, &fpchip, &matrix);
+
+    println!("zkmatrix = ");
+    zkmatrix.print(&fpchip);
+
+    let mut v1: Vec<f64> = Vec::new();
+    for i in 0..M {
+        v1.push(rng.gen_range(-1.0..1.0));
+    }
+    // don't mutate now
+    let v1 = v1;
+    // println!("v1 = {:?}", v1);
+
+    let zkvec1 = ZkVector::new(ctx, &fpchip, &v1);
+    println!("zkvec1 = ");
+    zkvec1.print(&fpchip);
+
+    println!("Matrix transform:");
+    let mut u1: Vec<f64> = Vec::new();
+
+    for i in 0..N {
+        u1.push(0.0);
+        for j in 0..M {
+            u1[i] += matrix[i][j] * v1[j];
+        }
+    }
+    println!("f64 non-zk: ");
+    println!("  for v1: {:?}", u1);
+
+    let zku1 = zkvec1.mul(ctx, &fpchip, &zkmatrix);
+
+    println!("zk ckt: ");
+    println!("zku1 = ");
+    zku1.print(&fpchip);
+}
+
 fn zk_random_verif_algo<F: ScalarField>(
     ctx: &mut Context<F>,
     input: CircuitInput,
@@ -648,9 +711,9 @@ fn zk_random_verif_algo<F: ScalarField>(
     // fixed-point exp arithmetic
     let fpchip = FixedPointChip::<F, PRECISION_BITS>::default(lookup_bits);
     let gate = &fpchip.gate.gate;
-    const N: usize = 100;
-    const M: usize = 100;
-    const K: usize = 100;
+    const N: usize = 20;
+    const M: usize = 20;
+    const K: usize = 20;
 
     let mut rng = rand::thread_rng();
     let mut a: Vec<Vec<f64>> = Vec::new();
@@ -754,12 +817,24 @@ fn zk_random_verif_algo<F: ScalarField>(
     // at git commit - 367bee6a27a606e006fdfac60927d22fed996399
     // costs 94 per mul- will also depend on lookup table
 
-    // WITH efficient {-1, 1} vector multiplication
+    // With efficient {-1, 1} vector multiplication
+    // at git commit - 61a961ab927a078cd4161d7153edd0a6298b3087
     // cells for
     // N=M=K=20 are 1571094
     // N=M=K=50 are 8600994
     // N=M=K=100 are 33529494
     // Number of cells grows as 3440*N^2 = 1150*3N^2
+    // 94*30 = 2820
+
+    // With amortized rescaling
+    // cells for
+    // N=M=K=20 are 539784
+    // N=M=K=50 are 2148984
+    // N=M=K=100 are 7722984
+    // Number of cells grows as N^2 + 94*N
+    // 723*N^2 + 3030*N + 189984
+    // (mul cost)*(num iter) = 94*30 = 2820 --> this contributes to the coeff of N
+    // (hashing cost)*(num iter) = 3000*30 --> contributes to the constant factor
 }
 
 fn zk_trivial_mat_mul<F: ScalarField>(
@@ -895,5 +970,5 @@ fn main() {
 // select good value of LOOKUP_BITS
 
 // to run:
-// export LOOKUP_BITS=5
-// cargo run --example matrix -- --name divide_by_32 -k 12 mock
+// export LOOKUP_BITS=12
+// cargo run --example matrix -- --name divide_by_32 -k 16 mock

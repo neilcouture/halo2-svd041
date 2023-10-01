@@ -300,6 +300,15 @@ pub trait FixedPointInstructions<F: ScalarField, const PRECISION_BITS: u32> {
     where
         F: BigPrimeField;
 
+    fn _qmul_unscaled(
+        &self,
+        ctx: &mut Context<F>,
+        a: impl Into<QuantumCell<F>>,
+        b: impl Into<QuantumCell<F>>,
+    ) -> AssignedValue<F>
+    where
+        F: BigPrimeField;
+
     fn qmul(
         &self,
         ctx: &mut Context<F>,
@@ -578,6 +587,24 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> FixedPointInstructions<F, PREC
         let clipped = self.cond_neg(ctx, unsigned_cliped, sign);
 
         clipped
+    }
+
+    /// for quantised [a] =x*S and [b] =y*S (where S is the quantisation factor = 2^P) this function returns (x*y)S^2
+    /// is unsafe in general
+    fn _qmul_unscaled(
+        &self,
+        ctx: &mut Context<F>,
+        a: impl Into<QuantumCell<F>>,
+        b: impl Into<QuantumCell<F>>,
+    ) -> AssignedValue<F>
+    where
+        F: BigPrimeField,
+    {
+        let a = a.into();
+        let b = b.into();
+
+        let ab = self.gate().mul(ctx, a, b);
+        return ab;
     }
 
     // is unsafe in general
@@ -864,12 +891,15 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> FixedPointInstructions<F, PREC
         let a: Vec<QA> = a.into_iter().collect();
         let b: Vec<QA> = b.into_iter().collect();
         assert!(a.len() == b.len());
-        let mut res = self.qadd(ctx, Constant(F::zero()), Constant(F::zero()));
-        for (ai, bi) in a.iter().zip(b.iter()).into_iter() {
-            let ai_bi = self.qmul(ctx, *ai, *bi);
-            res = self.qadd(ctx, res, ai_bi);
-        }
+        let mut res_s = ctx.load_witness(F::zero());
+        self.gate().assert_is_const(ctx, &res_s, &F::zero());
 
+        for (ai, bi) in a.iter().zip(b.iter()).into_iter() {
+            let ai_bi_s = self._qmul_unscaled(ctx, *ai, *bi);
+            res_s = self.gate().add(ctx, res_s, ai_bi_s);
+        }
+        // Implementing this way allows us to amortize the cost of calling this expensive rescaling- will also lead to more accuracy
+        let (res, _) = self.signed_div_scale(ctx, res_s);
         res
     }
 
