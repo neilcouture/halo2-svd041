@@ -1,8 +1,9 @@
+#![allow(dead_code)]
+#[allow(unused_imports)]
 use clap::Parser;
 use halo2_base::gates::{GateChip, GateInstructions, RangeChip, RangeInstructions};
 use halo2_base::utils::{BigPrimeField, ScalarField};
 use halo2_base::AssignedValue;
-#[allow(unused_imports)]
 use halo2_base::{
     Context,
     QuantumCell::{Constant, Existing, Witness},
@@ -229,15 +230,16 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
 
         let d = c.num_col;
 
-        // need to hash these many times to produce enough randomness for one random vector check
+        // random bits in 1 hash
         const RAND_PER_HASH: usize = 254;
+        // need to hash these many times to produce enough randomness for one random vector check
         let num_hash_per_rnd = (d - 1) / RAND_PER_HASH + 1; // -1 because we want just M hashes at d= M*RAND_PER_HASH
 
         // this will determine probability of error for the randomized algorithm
         // currently set to 2^-30 ~ 1e-9
         const NUM_RNDS: usize = 30;
 
-        let gate: &GateChip<F> = &fpchip.gate.gate;
+        let gate: &GateChip<F> = &fpchip.gate();
         // declare norm_est_sum and contrain it
         let mut norm_sq_est_sum = ctx.load_witness(fpchip.quantization(0.0));
         gate.assert_is_const(ctx, &norm_sq_est_sum, &fpchip.quantization(0.0));
@@ -254,7 +256,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
         // 1 random element already in the list
         for i in 1..num_hash_per_rnd {
             // there is a difference between using a single chip and using multiple chips
-            // I think the right way is to use multiple chips
+            // TODO: I think the right way is to use multiple chips
             let mut poseidon = PoseidonChip::<F, T, RATE>::new(ctx, R_F, R_P).unwrap();
             poseidon.update(&[hash_list[i - 1]]);
             hash_list.push(poseidon.squeeze(ctx, gate).unwrap());
@@ -272,12 +274,13 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
             rand_bin_vec.append(&mut new_rand);
         }
 
-        let v = convert_vec(ctx, &fpchip, &rand_bin_vec, Some(d));
+        // Do not need to explicitly calculate this vector v
+        // let v = convert_vec(ctx, &fpchip, &rand_bin_vec, Some(d));
         // println!("The random vector is: ");
         // v.print(&fpchip);
 
-        let c_times_v = v.mul(ctx, fpchip, c);
-        let b_times_v = v.mul(ctx, fpchip, b);
+        let c_times_v = _matrix_times_bin_vec(ctx, &fpchip.gate(), &c, &rand_bin_vec);
+        let b_times_v = _matrix_times_bin_vec(ctx, &fpchip.gate(), &b, &rand_bin_vec);
         let ab_times_v = b_times_v.mul(ctx, fpchip, a);
 
         // println!("c_times_v is: ");
@@ -289,7 +292,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
 
         let dist_sq = c_times_v._dist_square(ctx, fpchip, &ab_times_v.v);
 
-        // let dist_sq_dq = fpchip.dequantization(*dist_sq.value());
+        let dist_sq_dq = fpchip.dequantization(*dist_sq.value());
         // println!("The dist is= {dist_sq_dq}");
 
         // println!("Est sum error= {:?}", fpchip.dequantization(*norm_sq_est_sum.value()));
@@ -302,6 +305,8 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
         let mut prev_rand = hash_list[hash_list.len() - 1];
 
         for _ in 1..NUM_RNDS {
+            // Need to repeat this code in the loop because we do not need this first part for the first iteration
+
             // println!("start rand = {:?}", prev_rand.value());
             let mut poseidon = PoseidonChip::<F, T, RATE>::new(ctx, R_F, R_P).unwrap();
             // use old hash and the results of previous computation to compute next hash
@@ -324,10 +329,10 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
                 let mut new_rand = gate.num_to_bits(ctx, hash_list[i], RAND_PER_HASH);
                 rand_bin_vec.append(&mut new_rand);
             }
-            let v = convert_vec(ctx, &fpchip, &rand_bin_vec, Some(d));
+            // let v = convert_vec(ctx, &fpchip, &rand_bin_vec, Some(d));
 
-            let c_times_v = v.mul(ctx, fpchip, c);
-            let b_times_v = v.mul(ctx, fpchip, b);
+            let c_times_v = _matrix_times_bin_vec(ctx, &fpchip.gate(), &c, &rand_bin_vec);
+            let b_times_v = _matrix_times_bin_vec(ctx, &fpchip.gate(), &b, &rand_bin_vec);
             let ab_times_v = b_times_v.mul(ctx, fpchip, a);
 
             let dist_sq = c_times_v._dist_square(ctx, fpchip, &ab_times_v.v);
@@ -400,6 +405,71 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
         }
         return Self { matrix: c, num_rows: a.num_rows, num_col: b.num_col };
     }
+}
+
+/// Constructs a quantised ZKVector in {-1, 1}^[length] given [bin_vec] in {0,1}^D where D is greater than equal to length.
+/// Assumes [bin_vec] to be a binary vector (NOT encoded using quantisation scheme).
+/// If [length] is left None then assumes [length] = [bin_vec.len()].
+fn convert_vec<F: BigPrimeField, const PRECISION_BITS: u32>(
+    ctx: &mut Context<F>,
+    fpchip: &FixedPointChip<F, PRECISION_BITS>,
+    bin_vec: &Vec<AssignedValue<F>>,
+    length: Option<usize>,
+) -> ZkVector<F, PRECISION_BITS> {
+    let mut rv: Vec<AssignedValue<F>> = vec![];
+    let qnt_2: F = fpchip.quantization(2.0);
+    let qnt_neg_1: F = fpchip.quantization(-1.0);
+    let gate = &fpchip.gate.gate;
+
+    let l = length.unwrap_or(bin_vec.len());
+
+    assert!(bin_vec.len() >= l);
+    for i in 0..l {
+        // x --> -1 + 2*x transforms x in {0,1} to x in {-1,1}
+        let out = gate.mul_add(ctx, bin_vec[i], Constant(qnt_2), Constant(qnt_neg_1));
+        rv.push(out);
+    }
+    return ZkVector { v: rv };
+}
+
+/// Returns [sum] + [matrix_elem] * [2*[b]-1]
+///
+/// Low level helper function which relies on the inner workings of the current FixedPointChip
+///
+/// Specifically uses the fact that FixedPointChip.{add, sub} simply calls GateChip.{add, sub}
+fn _matrix_times_bin_vec_helper<F: BigPrimeField>(
+    ctx: &mut Context<F>,
+    gate: &GateChip<F>,
+    sum: &AssignedValue<F>,
+    matrix_elem: &AssignedValue<F>,
+    b: &AssignedValue<F>,
+) -> AssignedValue<F> {
+    // transform bit b to {-1,1} using x -> 2x-1
+    let t = gate.mul_add(ctx, Constant(F::from(2)), *b, Constant(-F::one()));
+    return gate.mul_add(ctx, *matrix_elem, t, *sum);
+}
+
+/// Low level FixedPointChip implementation based method to efficiently convert a random binary vector [bin_vec] to {-1, 1} vector and then multiply that with matrix [m]
+///
+/// Calls `_matrix_times_bin_vec_helper`
+fn _matrix_times_bin_vec<F: BigPrimeField, const PRECISION_BITS: u32>(
+    ctx: &mut Context<F>,
+    gate: &GateChip<F>,
+    m: &ZkMatrix<F, PRECISION_BITS>,
+    bin_vec: &Vec<AssignedValue<F>>,
+) -> ZkVector<F, PRECISION_BITS> {
+    assert!(m.num_col <= bin_vec.len());
+
+    let mut res: Vec<AssignedValue<F>> = Vec::new();
+    for i in 0..m.num_rows {
+        let mut elem = ctx.load_witness(F::zero());
+        gate.assert_is_const(ctx, &elem, &F::zero());
+        for j in 0..m.num_col {
+            elem = _matrix_times_bin_vec_helper(ctx, &gate, &elem, &m.matrix[i][j], &bin_vec[j]);
+        }
+        res.push(elem);
+    }
+    return ZkVector { v: res };
 }
 
 /// simple tests to make sure zkvector is okay; can also be randomized
@@ -476,7 +546,7 @@ fn test_zkvector<F: ScalarField>(
     let ip = fpchip.dequantization(*ip.value());
     println!("zk ckt: {:?}", ip);
 
-    println!("**The errors for Norm and dist are pretty big**");
+    println!("** The errors for Norm and dist are pretty big **");
     println!("Norm:");
     let mut norm1 = 0.0;
     let mut norm2 = 0.0;
@@ -566,31 +636,6 @@ fn test_zkvector<F: ScalarField>(
     zku2.print(&fpchip);
 }
 
-/// Constructs a quantised ZKVector in {-1, 1}^[length] given [bin_vec] in {0,1}^D where D is greater than equal to length.
-/// Assumes [bin_vec] to be a binary vector (NOT encoded using quantisation scheme).
-/// If [length] is left None then assumes [length] = [bin_vec.len()].
-fn convert_vec<F: BigPrimeField, const PRECISION_BITS: u32>(
-    ctx: &mut Context<F>,
-    fpchip: &FixedPointChip<F, PRECISION_BITS>,
-    bin_vec: &Vec<AssignedValue<F>>,
-    length: Option<usize>,
-) -> ZkVector<F, PRECISION_BITS> {
-    let mut rv: Vec<AssignedValue<F>> = vec![];
-    let qnt_2: F = fpchip.quantization(2.0);
-    let qnt_neg_1: F = fpchip.quantization(-1.0);
-    let gate = &fpchip.gate.gate;
-
-    let l = length.unwrap_or(bin_vec.len());
-
-    assert!(bin_vec.len() >= l);
-    for i in 0..l {
-        // x --> -1 + 2*x transforms x in {0,1} to x in {-1,1}
-        let out = gate.mul_add(ctx, bin_vec[i], Constant(qnt_2), Constant(qnt_neg_1));
-        rv.push(out);
-    }
-    return ZkVector { v: rv };
-}
-
 fn zk_random_verif_algo<F: ScalarField>(
     ctx: &mut Context<F>,
     input: CircuitInput,
@@ -603,9 +648,9 @@ fn zk_random_verif_algo<F: ScalarField>(
     // fixed-point exp arithmetic
     let fpchip = FixedPointChip::<F, PRECISION_BITS>::default(lookup_bits);
     let gate = &fpchip.gate.gate;
-    const N: usize = 20;
-    const M: usize = 20;
-    const K: usize = 20;
+    const N: usize = 100;
+    const M: usize = 100;
+    const K: usize = 100;
 
     let mut rng = rand::thread_rng();
     let mut a: Vec<Vec<f64>> = Vec::new();
@@ -696,12 +741,25 @@ fn zk_random_verif_algo<F: ScalarField>(
     let init_rand = poseidon.squeeze(ctx, gate).unwrap();
     ZkMatrix::verify_mul(ctx, &fpchip, &a, &b, &c, init_rand, 1e-3);
 
-    // number of advice columns seems to grow as 7200*dim^2- with 5 hashes
-    // 26000*dim^2 with 30 hashes
+    // ORIGINAL MULTIPICATION
+    // at git commit - a07444642cd61c4bd9732bb96f9762a3aa645fa1
+    // Multiplication cost 250 per mul
+    // Total cost = 26000*dim^2 with 30 hashes
     // 3000 would just be from init_hash
     // Hashing [NUM_RNDS] times = 2000 per hash- only 30*2000 overall- small
     // 250 for a single vector multiplication per element
     // This 250 cost is coming from the rescaling required in qmul (signed_div_scale)
+
+    // NEW MULTIPICATION
+    // at git commit - 367bee6a27a606e006fdfac60927d22fed996399
+    // costs 94 per mul- will also depend on lookup table
+
+    // WITH efficient {-1, 1} vector multiplication
+    // cells for
+    // N=M=K=20 are 1571094
+    // N=M=K=50 are 8600994
+    // N=M=K=100 are 33529494
+    // Number of cells grows as 3440*N^2 = 1150*3N^2
 }
 
 fn zk_trivial_mat_mul<F: ScalarField>(
@@ -716,9 +774,9 @@ fn zk_trivial_mat_mul<F: ScalarField>(
     // fixed-point exp arithmetic
     let fpchip = FixedPointChip::<F, PRECISION_BITS>::default(lookup_bits);
     let gate = &fpchip.gate.gate;
-    const N: usize = 50;
-    const M: usize = 50;
-    const K: usize = 50;
+    const N: usize = 5;
+    const M: usize = 5;
+    const K: usize = 5;
 
     let mut rng = rand::thread_rng();
     let mut a: Vec<Vec<f64>> = Vec::new();
@@ -792,23 +850,34 @@ fn zk_trivial_mat_mul<F: ScalarField>(
     let b = ZkMatrix::new(ctx, &fpchip, &b);
     let c = ZkMatrix::trivial_mul(ctx, &fpchip, &a, &b);
 
-    // println!("ZKMatrices:");
+    println!("ZKMatrices:");
 
-    // println!("a = ");
-    // a.print(&fpchip);
+    println!("a = ");
+    a.print(&fpchip);
 
-    // println!("b = ");
-    // b.print(&fpchip);
+    println!("b = ");
+    b.print(&fpchip);
 
-    // println!("c = ");
-    // c.print(&fpchip);
+    println!("c = ");
+    c.print(&fpchip);
 
     println!("~~~~~Ckt over~~~~~");
 
+    // Comparison
+
+    // ORIGINAL MULTIPICATION
+    // at git commit - a07444642cd61c4bd9732bb96f9762a3aa645fa1
     // cells for
     // N=M=K=20 are 2049200
     // N=M=K=50 are 32007500
     // Number of cells grows as 250*N^3
+
+    // NEW MULTIPICATION
+    // at git commit - 367bee6a27a606e006fdfac60927d22fed996399
+    // cells for
+    // N=M=K=20 are 753200
+    // N=M=K=50 are 11757500
+    // Number of cells grows as 94*N^3
 }
 
 fn main() {
@@ -819,7 +888,7 @@ fn main() {
     let args = Cli::parse();
 
     // run different zk commands based on the command line arguments
-    run(zk_trivial_mat_mul, args);
+    run(zk_random_verif_algo, args);
 }
 
 // TODO:
