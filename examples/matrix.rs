@@ -70,23 +70,32 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkVector<F, PRECISION_BITS> {
     }
 
     /// With zk constraints calculates the inner product of this vector with vector x
+    ///
     /// Outputs the inner product
+    ///
     /// Order doesn't matter because we are only dealing with real numbers
+    ///
+    /// Low level function; uses the fact that FixedPointChip.{add, mul} just call GateChip.{add, mul}
+    ///
+    /// Leads to about [self.size()] + 90 constraints
     pub fn inner_product(
         &self,
         ctx: &mut Context<F>,
         fpchip: &FixedPointChip<F, PRECISION_BITS>,
         x: &Vec<AssignedValue<F>>,
     ) -> AssignedValue<F> {
-        // couldn't figure out how to use inner_product of fpchip because we use x: &Vec I didn't want to move
+        // couldn't figure out how to use inner_product of fpchip because we use x: &Vec and I didn't want to move
         assert!(self.size() == x.len());
+        // #CONSTRAINTS = 1
+        // using the fact that FixedPointChip's 0 is at F::zero()
         let mut res_s = ctx.load_witness(F::zero());
         fpchip.gate().assert_is_const(ctx, &res_s, &F::zero());
+        // #CONSTRAINTS = self.size()
         for i in 0..self.size() {
-            let ai_bi_s = fpchip._qmul_unscaled(ctx, self.v[i], x[i]);
-            // low level adding stuff - everything is multiplied by S= quantisation factor
-            res_s = fpchip.gate().add(ctx, res_s, ai_bi_s);
+            // low level adding and multiplying stuff - everything is multiplied by S= quantisation factor
+            res_s = fpchip.gate().mul_add(ctx, self.v[i], x[i], res_s);
         }
+        // #CONSTRAINTS = 90
         // Implementing this way allows us to amortize the cost of calling this expensive rescaling- will also lead to more accuracy
         let (res, _) = fpchip.signed_div_scale(ctx, res_s);
         return res;
@@ -145,6 +154,8 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkVector<F, PRECISION_BITS> {
     }
 
     /// Multiplies this vector by matrix `a` in the zk-circuit and returns the constrained output `a.v`
+    ///
+    /// Adds about N^2+90*N constraints
     pub fn mul(
         &self,
         ctx: &mut Context<F>,
@@ -153,6 +164,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkVector<F, PRECISION_BITS> {
     ) -> Self {
         assert_eq!(a.num_col, self.size());
         let mut y: Vec<AssignedValue<F>> = Vec::new();
+        // #CONSTRAINTS = N^2+90*N
         for row in &a.matrix {
             y.push(self.inner_product(ctx, fpchip, row));
         }
@@ -168,6 +180,8 @@ pub struct ZkMatrix<F: BigPrimeField, const PRECISION_BITS: u32> {
     // can also add fpchip to this itself
 }
 impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
+    // create a ZkMatrix from a f64 matrix
+    // leads to num_rows*num_col new constraints
     pub fn new(
         ctx: &mut Context<F>,
         fpchip: &FixedPointChip<F, PRECISION_BITS>,
@@ -243,6 +257,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
 
         let gate: &GateChip<F> = &fpchip.gate();
         // declare norm_est_sum and contrain it
+        // #CONSTRAINTS = 1
         let mut norm_sq_est_sum = ctx.load_witness(fpchip.quantization(0.0));
         gate.assert_is_const(ctx, &norm_sq_est_sum, &fpchip.quantization(0.0));
 
@@ -255,6 +270,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
         // list of hashes used in a round
         let mut hash_list: Vec<AssignedValue<F>> = vec![init_rand];
 
+        // #CONSTRAINTS = 3000*N/254 = 12N
         // 1 random element already in the list
         for i in 1..num_hash_per_rnd {
             // there is a difference between using a single chip and using multiple chips
@@ -270,6 +286,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
         //     dbg!(h.value());
         // }
 
+        // #CONSTRAINTS = 254*N/254 = N
         let mut rand_bin_vec: Vec<AssignedValue<F>> = vec![];
         for i in 0..num_hash_per_rnd {
             let mut new_rand = gate.num_to_bits(ctx, hash_list[i], RAND_PER_HASH);
@@ -278,8 +295,10 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
 
         // Do not need to explicitly calculate the conversion of this vector to {-1, 1} vector- but we call this converted vector v
 
+        // #CONSTRAINTS = 4*N^2 + 2N
         let c_times_v = _matrix_times_bin_vec(ctx, &fpchip.gate(), &c, &rand_bin_vec);
         let b_times_v = _matrix_times_bin_vec(ctx, &fpchip.gate(), &b, &rand_bin_vec);
+        // #CONSTRAINTS = N^2 + 90*N
         let ab_times_v = b_times_v.mul(ctx, fpchip, a);
 
         // println!("c_times_v is: ");
@@ -289,6 +308,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
         // println!("ab_times_v is: ");
         // ab_times_v.print(&fpchip);
 
+        // #CONSTRAINTS = N
         let dist_sq = c_times_v._dist_square(ctx, fpchip, &ab_times_v.v);
 
         let dist_sq_dq = fpchip.dequantization(*dist_sq.value());
@@ -436,6 +456,8 @@ fn convert_vec<F: BigPrimeField, const PRECISION_BITS: u32>(
 /// Low level helper function which relies on the inner workings of the current FixedPointChip
 ///
 /// Specifically uses the fact that FixedPointChip.{add, sub} simply calls GateChip.{add, sub}
+///
+/// Leads to 2 constraints
 fn _matrix_times_bin_vec_helper<F: BigPrimeField>(
     ctx: &mut Context<F>,
     gate: &GateChip<F>,
@@ -451,6 +473,8 @@ fn _matrix_times_bin_vec_helper<F: BigPrimeField>(
 /// Low level FixedPointChip implementation based method to efficiently convert a random binary vector [bin_vec] to {-1, 1} vector and then multiply that with matrix [m]
 ///
 /// Calls `_matrix_times_bin_vec_helper`
+///
+/// Leads to about 2*[m.num_rows]*[m.num_col]+ [m.num_rows] contraints
 fn _matrix_times_bin_vec<F: BigPrimeField, const PRECISION_BITS: u32>(
     ctx: &mut Context<F>,
     gate: &GateChip<F>,
@@ -460,6 +484,7 @@ fn _matrix_times_bin_vec<F: BigPrimeField, const PRECISION_BITS: u32>(
     assert!(m.num_col <= bin_vec.len());
 
     let mut res: Vec<AssignedValue<F>> = Vec::new();
+    // #CONSTRAINTS = 2*N^2 + N
     for i in 0..m.num_rows {
         let mut elem = ctx.load_witness(F::zero());
         gate.assert_is_const(ctx, &elem, &F::zero());
@@ -650,8 +675,8 @@ fn test_zkvector_times_matrix<F: ScalarField>(
     // fixed-point exp arithmetic
     let fpchip = FixedPointChip::<F, PRECISION_BITS>::default(lookup_bits);
 
-    const N: usize = 10;
-    const M: usize = 10;
+    const N: usize = 5;
+    const M: usize = 5;
     let mut rng = rand::thread_rng();
 
     let mut matrix: Vec<Vec<f64>> = Vec::new();
@@ -711,9 +736,9 @@ fn zk_random_verif_algo<F: ScalarField>(
     // fixed-point exp arithmetic
     let fpchip = FixedPointChip::<F, PRECISION_BITS>::default(lookup_bits);
     let gate = &fpchip.gate.gate;
-    const N: usize = 20;
-    const M: usize = 20;
-    const K: usize = 20;
+    const N: usize = 50;
+    const M: usize = 50;
+    const K: usize = 50;
 
     let mut rng = rand::thread_rng();
     let mut a: Vec<Vec<f64>> = Vec::new();
@@ -783,6 +808,7 @@ fn zk_random_verif_algo<F: ScalarField>(
     // }
     // print!("]\n");
 
+    // #CONSTRAINTS = these lead to 3*N^2 constraints
     let a = ZkMatrix::new(ctx, &fpchip, &a);
     let b = ZkMatrix::new(ctx, &fpchip, &b);
     let c = ZkMatrix::new(ctx, &fpchip, &c);
@@ -793,6 +819,7 @@ fn zk_random_verif_algo<F: ScalarField>(
     // let init_rand = ZkMatrix::hash_matrix_list(ctx, gate, vec![&a, &b, &c]);
     // dbg!(init_rand.value());
 
+    // #CONSTRAINTS = 3000= O(1)
     // init_rand = hash(a[0][0])
     const T: usize = 3;
     const RATE: usize = 2;
@@ -827,6 +854,7 @@ fn zk_random_verif_algo<F: ScalarField>(
     // 94*30 = 2820
 
     // With amortized rescaling
+    // at git commit - f6c0bc6d145af60e2da3fcc1b1e76a6f00daebe4
     // cells for
     // N=M=K=20 are 539784
     // N=M=K=50 are 2148984
@@ -835,6 +863,16 @@ fn zk_random_verif_algo<F: ScalarField>(
     // 723*N^2 + 3030*N + 189984
     // (mul cost)*(num iter) = 94*30 = 2820 --> this contributes to the coeff of N
     // (hashing cost)*(num iter) = 3000*30 --> contributes to the constant factor
+    // 723/30 = 24
+
+    // Minor improvement to inner_product
+    // cells for
+    // N=M=K=20 are 489384
+    // N=M=K=50 are 1842984
+    // N=M=K=100 are 6510984
+    // At this point if you count visible constraints, they are = 5K*N^2 +106*K*N + 3000*K
+    // - this very nicely accounts for all the N order constraint growth
+    // - smaller than observed for N^2 coeff by a factor of ~4.3 -- because of copying stuff??
 }
 
 fn zk_trivial_mat_mul<F: ScalarField>(

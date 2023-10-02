@@ -891,12 +891,12 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> FixedPointInstructions<F, PREC
         let a: Vec<QA> = a.into_iter().collect();
         let b: Vec<QA> = b.into_iter().collect();
         assert!(a.len() == b.len());
+        // using the fact that FixedPointChip's 0 is at F::zero()
         let mut res_s = ctx.load_witness(F::zero());
         self.gate().assert_is_const(ctx, &res_s, &F::zero());
 
         for (ai, bi) in a.iter().zip(b.iter()).into_iter() {
-            let ai_bi_s = self._qmul_unscaled(ctx, *ai, *bi);
-            res_s = self.gate().add(ctx, res_s, ai_bi_s);
+            res_s = self.gate().mul_add(ctx, *ai, *bi, res_s);
         }
         // Implementing this way allows us to amortize the cost of calling this expensive rescaling- will also lead to more accuracy
         let (res, _) = self.signed_div_scale(ctx, res_s);
