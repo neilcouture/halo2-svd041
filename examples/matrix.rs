@@ -229,6 +229,8 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
     }
 
     /// Verifies that matrices [a], [b], and [c] satisfy [c = a*b]
+    ///
+    /// [init_rand] is the starting randomness/ challenge value
     pub fn verify_mul(
         ctx: &mut Context<F>,
         fpchip: &FixedPointChip<F, PRECISION_BITS>,
@@ -866,6 +868,7 @@ fn zk_random_verif_algo<F: ScalarField>(
     // 723/30 = 24
 
     // Minor improvement to inner_product
+    // at git commit - 994f4ac4d870d97aedf7ea7fa8095914028d33ed
     // cells for
     // N=M=K=20 are 489384
     // N=M=K=50 are 1842984
