@@ -888,6 +888,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> FixedPointInstructions<F, PREC
         F: BigPrimeField,
         QA: Into<QuantumCell<F>> + Copy,
     {
+        // you can make this abou 10% more efficient by using the builtin inner-product function
         let a: Vec<QA> = a.into_iter().collect();
         let b: Vec<QA> = b.into_iter().collect();
         assert!(a.len() == b.len());

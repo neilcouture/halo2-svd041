@@ -12,7 +12,7 @@ use halo2_scaffold::scaffold::cmd::Cli;
 use halo2_scaffold::scaffold::run;
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
-use std::env::var;
+use std::env::{set_var, var};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CircuitInput {
@@ -60,7 +60,7 @@ fn some_algorithm_in_zk<F: ScalarField>(
     input: CircuitInput,
     make_public: &mut Vec<AssignedValue<F>>,
 ) {
-    // println!("Hello {}", input.x);
+    println!("Hello {}", input.x);
     const DIV: u32 = 32;
     const NUM_BITS_INPUT: u32 = 16;
     let x: u32 = input.x.parse().unwrap();
@@ -105,9 +105,15 @@ fn some_algorithm_in_zk<F: ScalarField>(
     range.check_less_than_safe(ctx, q, (1 << (NUM_BITS_INPUT + 1)) / DIV as u64);
     // constrain r < DIV
     range.check_less_than_safe(ctx, r, DIV as u64);
+
+    let f = F::from_u128(2u128) * F::from_u128(2u128);
+
+    println!("Field op: {:?}", f);
 }
 
 fn main() {
+    set_var("LOOKUP_BITS", 12.to_string());
+
     env_logger::init();
 
     let args = Cli::parse();
@@ -118,7 +124,7 @@ fn main() {
 
 // to run:
 // export LOOKUP_BITS=5
-// cargo run --example divide_by_32 -- --name divide_by_32 -k 8 mock
+// cargo run --example divide_by_32 -- --name divide_by_32 -k 16 mock
 
 // Halo2 docs at
 // https://axiom-crypto.github.io/halo2-lib/halo2_base/all.html

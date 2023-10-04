@@ -3,7 +3,7 @@
 use clap::Parser;
 use halo2_base::gates::{GateChip, GateInstructions, RangeChip, RangeInstructions};
 use halo2_base::utils::{BigPrimeField, ScalarField};
-use halo2_base::AssignedValue;
+use halo2_base::{AssignedValue, QuantumCell};
 use halo2_base::{
     Context,
     QuantumCell::{Constant, Existing, Witness},
@@ -86,15 +86,21 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkVector<F, PRECISION_BITS> {
     ) -> AssignedValue<F> {
         // couldn't figure out how to use inner_product of fpchip because we use x: &Vec and I didn't want to move
         assert!(self.size() == x.len());
-        // #CONSTRAINTS = 1
-        // using the fact that FixedPointChip's 0 is at F::zero()
-        let mut res_s = ctx.load_witness(F::zero());
-        fpchip.gate().assert_is_const(ctx, &res_s, &F::zero());
-        // #CONSTRAINTS = self.size()
-        for i in 0..self.size() {
-            // low level adding and multiplying stuff - everything is multiplied by S= quantisation factor
-            res_s = fpchip.gate().mul_add(ctx, self.v[i], x[i], res_s);
+
+        let mut v: Vec<QuantumCell<F>> = Vec::new();
+        for elem in &self.v {
+            v.push(Existing(*elem));
         }
+        let v = v;
+
+        let mut u: Vec<QuantumCell<F>> = Vec::new();
+        for elem in x {
+            u.push(Existing(*elem));
+        }
+        let u = u;
+
+        let res_s = fpchip.gate().inner_product(ctx, u, v);
+
         // #CONSTRAINTS = 90
         // Implementing this way allows us to amortize the cost of calling this expensive rescaling- will also lead to more accuracy
         let (res, _) = fpchip.signed_div_scale(ctx, res_s);
@@ -181,7 +187,7 @@ pub struct ZkMatrix<F: BigPrimeField, const PRECISION_BITS: u32> {
 }
 impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
     // create a ZkMatrix from a f64 matrix
-    // leads to num_rows*num_col new constraints
+    // leads to num_rows*num_col new cells
     pub fn new(
         ctx: &mut Context<F>,
         fpchip: &FixedPointChip<F, PRECISION_BITS>,
@@ -228,7 +234,153 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
         println!("]");
     }
 
-    /// Verifies that matrices [a], [b], and [c] satisfy [c = a*b]
+    // /// Verifies that matrices [a], [b], and [c] satisfy [c = a*b]
+    // ///
+    // /// [init_rand] is the starting randomness/ challenge value
+    // pub fn verify_mul(
+    //     ctx: &mut Context<F>,
+    //     fpchip: &FixedPointChip<F, PRECISION_BITS>,
+    //     a: &Self,
+    //     b: &Self,
+    //     c: &Self,
+    //     init_rand: AssignedValue<F>,
+    //     tol: f64,
+    // ) {
+    //     assert!(tol > 0.0);
+    //     assert_eq!(a.num_col, b.num_rows);
+    //     assert_eq!(c.num_rows, a.num_rows);
+    //     assert_eq!(c.num_col, b.num_col);
+    //     assert!(c.num_col >= 1);
+
+    //     let d = c.num_col;
+
+    //     // random bits in 1 hash
+    //     const RAND_PER_HASH: usize = 254;
+    //     // need to hash these many times to produce enough randomness for one random vector check
+    //     let num_hash_per_rnd = (d - 1) / RAND_PER_HASH + 1; // -1 because we want just M hashes at d= M*RAND_PER_HASH
+
+    //     // this will determine probability of error for the randomized algorithm
+    //     // currently set to 2^-30 ~ 1e-9
+    //     const NUM_RNDS: usize = 30;
+
+    //     let gate: &GateChip<F> = &fpchip.gate();
+    //     // declare norm_est_sum and contrain it
+    //     // #CONSTRAINTS = 1
+    //     let mut norm_sq_est_sum = ctx.load_witness(fpchip.quantization(0.0));
+    //     gate.assert_is_const(ctx, &norm_sq_est_sum, &fpchip.quantization(0.0));
+
+    //     // T, R_F, R_P values correspond to POSEIDON-128 values given in Table 2 of the Poseidon hash paper
+    //     const T: usize = 3;
+    //     const RATE: usize = 2;
+    //     const R_F: usize = 8;
+    //     const R_P: usize = 57;
+
+    //     // list of hashes used in a round
+    //     let mut hash_list: Vec<AssignedValue<F>> = vec![init_rand];
+
+    //     // #CONSTRAINTS = 3000*N/254 = 12N
+    //     // 1 random element already in the list
+    //     for i in 1..num_hash_per_rnd {
+    //         // there is a difference between using a single chip and using multiple chips
+    //         // TODO: I think the right way is to use multiple chips
+    //         let mut poseidon = PoseidonChip::<F, T, RATE>::new(ctx, R_F, R_P).unwrap();
+    //         poseidon.update(&[hash_list[i - 1]]);
+    //         hash_list.push(poseidon.squeeze(ctx, gate).unwrap());
+    //     }
+    //     // no more mutable
+    //     let hash_list = hash_list;
+
+    //     // for h in &hash_list {
+    //     //     dbg!(h.value());
+    //     // }
+
+    //     // #CONSTRAINTS = 254*N/254 = N
+    //     let mut rand_bin_vec: Vec<AssignedValue<F>> = vec![];
+    //     for i in 0..num_hash_per_rnd {
+    //         let mut new_rand = gate.num_to_bits(ctx, hash_list[i], RAND_PER_HASH);
+    //         rand_bin_vec.append(&mut new_rand);
+    //     }
+
+    //     // Do not need to explicitly calculate the conversion of this vector to {-1, 1} vector- but we call this converted vector v
+
+    //     // #CONSTRAINTS = 4*N^2 + 2N
+    //     let c_times_v = _matrix_times_bin_vec(ctx, &fpchip.gate(), &c, &rand_bin_vec);
+    //     let b_times_v = _matrix_times_bin_vec(ctx, &fpchip.gate(), &b, &rand_bin_vec);
+    //     // #CONSTRAINTS = N^2 + 90*N
+    //     let ab_times_v = b_times_v.mul(ctx, fpchip, a);
+
+    //     // println!("c_times_v is: ");
+    //     // c_times_v.print(&fpchip);
+    //     // println!("b_times_v is: ");
+    //     // b_times_v.print(&fpchip);
+    //     // println!("ab_times_v is: ");
+    //     // ab_times_v.print(&fpchip);
+
+    //     // #CONSTRAINTS = N
+    //     let dist_sq = c_times_v._dist_square(ctx, fpchip, &ab_times_v.v);
+
+    //     let dist_sq_dq = fpchip.dequantization(*dist_sq.value());
+    //     // println!("The dist is= {dist_sq_dq}");
+
+    //     // println!("Est sum error= {:?}", fpchip.dequantization(*norm_sq_est_sum.value()));
+
+    //     norm_sq_est_sum = fpchip.qadd(ctx, norm_sq_est_sum, dist_sq);
+
+    //     // println!("Est sum error= {:?}", fpchip.dequantization(*norm_sq_est_sum.value()));
+
+    //     // the commitment for all randomness so far
+    //     let mut prev_rand = hash_list[hash_list.len() - 1];
+
+    //     for _ in 1..NUM_RNDS {
+    //         // Need to repeat this code in the loop because we do not need this first part for the first iteration
+
+    //         // println!("start rand = {:?}", prev_rand.value());
+    //         let mut poseidon = PoseidonChip::<F, T, RATE>::new(ctx, R_F, R_P).unwrap();
+    //         // use old hash and the results of previous computation to compute next hash
+    //         poseidon.update(&[prev_rand, norm_sq_est_sum]);
+    //         let init_rand = poseidon.squeeze(ctx, gate).unwrap();
+
+    //         // list of hashes used in a round
+    //         let mut hash_list: Vec<AssignedValue<F>> = vec![init_rand];
+
+    //         // 1 random element already in the list
+    //         for i in 1..num_hash_per_rnd {
+    //             let mut poseidon = PoseidonChip::<F, T, RATE>::new(ctx, R_F, R_P).unwrap();
+    //             poseidon.update(&[hash_list[i - 1]]);
+    //             hash_list.push(poseidon.squeeze(ctx, gate).unwrap());
+    //         }
+    //         let hash_list = hash_list;
+
+    //         let mut rand_bin_vec: Vec<AssignedValue<F>> = vec![];
+    //         for i in 0..num_hash_per_rnd {
+    //             let mut new_rand = gate.num_to_bits(ctx, hash_list[i], RAND_PER_HASH);
+    //             rand_bin_vec.append(&mut new_rand);
+    //         }
+    //         // let v = convert_vec(ctx, &fpchip, &rand_bin_vec, Some(d));
+
+    //         let c_times_v = _matrix_times_bin_vec(ctx, &fpchip.gate(), &c, &rand_bin_vec);
+    //         let b_times_v = _matrix_times_bin_vec(ctx, &fpchip.gate(), &b, &rand_bin_vec);
+    //         let ab_times_v = b_times_v.mul(ctx, fpchip, a);
+
+    //         let dist_sq = c_times_v._dist_square(ctx, fpchip, &ab_times_v.v);
+
+    //         norm_sq_est_sum = fpchip.qadd(ctx, norm_sq_est_sum, dist_sq);
+    //         // println!("Est sum error= {:?}", fpchip.dequantization(*norm_sq_est_sum.value()));
+    //         prev_rand = hash_list[hash_list.len() - 1];
+    //     }
+
+    //     let norm_sq_est =
+    //         fpchip.qdiv(ctx, norm_sq_est_sum, Constant(fpchip.quantization(NUM_RNDS as f64)));
+    //     println!("Est error= {:?}", fpchip.dequantization(*norm_sq_est.value()));
+    //     // ensure dist is smaller than tolerance
+    //     // should depend on size of matrix; make sizes constant
+    //     // have to explicitly use quantization here
+    //     let quant_tol = (tol * (2u64.pow(PRECISION_BITS) as f64)) as u64;
+    //     // TODO: uncomment this
+    //     // fpchip.gate.check_less_than_safe(ctx, norm_sq_est, quant_tol);
+    // }
+
+    /// Takes quantised matrices [a] and [b], calculates matrix [c = a*b] outside of circuit. Verifies [c] is correct in circuit then outputs it
     ///
     /// [init_rand] is the starting randomness/ challenge value
     pub fn verify_mul(
@@ -236,142 +388,61 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
         fpchip: &FixedPointChip<F, PRECISION_BITS>,
         a: &Self,
         b: &Self,
-        c: &Self,
-        init_rand: AssignedValue<F>,
-        tol: f64,
+        c_s: &Vec<Vec<AssignedValue<F>>>,
+        init_rand: &AssignedValue<F>,
     ) {
-        assert!(tol > 0.0);
         assert_eq!(a.num_col, b.num_rows);
-        assert_eq!(c.num_rows, a.num_rows);
-        assert_eq!(c.num_col, b.num_col);
-        assert!(c.num_col >= 1);
+        assert_eq!(c_s.len(), a.num_rows);
+        assert_eq!(c_s[0].len(), b.num_col);
+        assert!(c_s[0].len() >= 1);
 
-        let d = c.num_col;
+        let d = c_s[0].len();
+        let gate = fpchip.gate();
 
-        // random bits in 1 hash
-        const RAND_PER_HASH: usize = 254;
-        // need to hash these many times to produce enough randomness for one random vector check
-        let num_hash_per_rnd = (d - 1) / RAND_PER_HASH + 1; // -1 because we want just M hashes at d= M*RAND_PER_HASH
+        // v = (1, r, r^2, ..., r^(d-1)) where r = init_rand is the random challenge value
+        let mut v: Vec<AssignedValue<F>> = Vec::new();
 
-        // this will determine probability of error for the randomized algorithm
-        // currently set to 2^-30 ~ 1e-9
-        const NUM_RNDS: usize = 30;
+        let one = ctx.load_witness(F::one());
+        gate.assert_is_const(ctx, &one, &F::one());
+        v.push(one);
 
-        let gate: &GateChip<F> = &fpchip.gate();
-        // declare norm_est_sum and contrain it
-        // #CONSTRAINTS = 1
-        let mut norm_sq_est_sum = ctx.load_witness(fpchip.quantization(0.0));
-        gate.assert_is_const(ctx, &norm_sq_est_sum, &fpchip.quantization(0.0));
-
-        // T, R_F, R_P values correspond to POSEIDON-128 values given in Table 2 of the Poseidon hash paper
-        const T: usize = 3;
-        const RATE: usize = 2;
-        const R_F: usize = 8;
-        const R_P: usize = 57;
-
-        // list of hashes used in a round
-        let mut hash_list: Vec<AssignedValue<F>> = vec![init_rand];
-
-        // #CONSTRAINTS = 3000*N/254 = 12N
-        // 1 random element already in the list
-        for i in 1..num_hash_per_rnd {
-            // there is a difference between using a single chip and using multiple chips
-            // TODO: I think the right way is to use multiple chips
-            let mut poseidon = PoseidonChip::<F, T, RATE>::new(ctx, R_F, R_P).unwrap();
-            poseidon.update(&[hash_list[i - 1]]);
-            hash_list.push(poseidon.squeeze(ctx, gate).unwrap());
+        for i in 1..d {
+            let prev = &v[i - 1];
+            let r_to_i = fpchip.gate().mul(ctx, *prev, *init_rand);
+            v.push(r_to_i);
         }
-        // no more mutable
-        let hash_list = hash_list;
+        let v = v;
 
-        // for h in &hash_list {
-        //     dbg!(h.value());
-        // }
+        println!("Random vector, v = [");
+        for x in &v {
+            println!("{:?}", *x.value());
+        }
+        println!("]");
 
-        // #CONSTRAINTS = 254*N/254 = N
-        let mut rand_bin_vec: Vec<AssignedValue<F>> = vec![];
-        for i in 0..num_hash_per_rnd {
-            let mut new_rand = gate.num_to_bits(ctx, hash_list[i], RAND_PER_HASH);
-            rand_bin_vec.append(&mut new_rand);
+        let cs_times_v = field_mat_vec_mul(ctx, gate, c_s, &v);
+        let b_times_v = field_mat_vec_mul(ctx, gate, &b.matrix, &v);
+        let ab_times_v = field_mat_vec_mul(ctx, gate, &a.matrix, &b_times_v);
+
+        for i in 0..d {
+            gate.is_equal(ctx, cs_times_v[i], ab_times_v[i]);
         }
 
-        // Do not need to explicitly calculate the conversion of this vector to {-1, 1} vector- but we call this converted vector v
-
-        // #CONSTRAINTS = 4*N^2 + 2N
-        let c_times_v = _matrix_times_bin_vec(ctx, &fpchip.gate(), &c, &rand_bin_vec);
-        let b_times_v = _matrix_times_bin_vec(ctx, &fpchip.gate(), &b, &rand_bin_vec);
-        // #CONSTRAINTS = N^2 + 90*N
-        let ab_times_v = b_times_v.mul(ctx, fpchip, a);
-
-        // println!("c_times_v is: ");
-        // c_times_v.print(&fpchip);
-        // println!("b_times_v is: ");
-        // b_times_v.print(&fpchip);
-        // println!("ab_times_v is: ");
-        // ab_times_v.print(&fpchip);
-
-        // #CONSTRAINTS = N
-        let dist_sq = c_times_v._dist_square(ctx, fpchip, &ab_times_v.v);
-
-        let dist_sq_dq = fpchip.dequantization(*dist_sq.value());
-        // println!("The dist is= {dist_sq_dq}");
-
-        // println!("Est sum error= {:?}", fpchip.dequantization(*norm_sq_est_sum.value()));
-
-        norm_sq_est_sum = fpchip.qadd(ctx, norm_sq_est_sum, dist_sq);
-
-        // println!("Est sum error= {:?}", fpchip.dequantization(*norm_sq_est_sum.value()));
-
-        // the commitment for all randomness so far
-        let mut prev_rand = hash_list[hash_list.len() - 1];
-
-        for _ in 1..NUM_RNDS {
-            // Need to repeat this code in the loop because we do not need this first part for the first iteration
-
-            // println!("start rand = {:?}", prev_rand.value());
-            let mut poseidon = PoseidonChip::<F, T, RATE>::new(ctx, R_F, R_P).unwrap();
-            // use old hash and the results of previous computation to compute next hash
-            poseidon.update(&[prev_rand, norm_sq_est_sum]);
-            let init_rand = poseidon.squeeze(ctx, gate).unwrap();
-
-            // list of hashes used in a round
-            let mut hash_list: Vec<AssignedValue<F>> = vec![init_rand];
-
-            // 1 random element already in the list
-            for i in 1..num_hash_per_rnd {
-                let mut poseidon = PoseidonChip::<F, T, RATE>::new(ctx, R_F, R_P).unwrap();
-                poseidon.update(&[hash_list[i - 1]]);
-                hash_list.push(poseidon.squeeze(ctx, gate).unwrap());
+        // now rescale c_s
+        let mut c: Vec<Vec<AssignedValue<F>>> = Vec::new();
+        let num_rows = c_s.len();
+        let num_col = c_s[0].len();
+        for i in 0..num_rows {
+            let mut new_row: Vec<AssignedValue<F>> = Vec::new();
+            for j in 0..num_col {
+                // use fpchip to rescale c_s[i][j]
+                // implemented in circuit, so we know c produced is correct
+                let (elem, _) = fpchip.signed_div_scale(ctx, c_s[i][j]);
+                new_row.push(elem);
             }
-            let hash_list = hash_list;
-
-            let mut rand_bin_vec: Vec<AssignedValue<F>> = vec![];
-            for i in 0..num_hash_per_rnd {
-                let mut new_rand = gate.num_to_bits(ctx, hash_list[i], RAND_PER_HASH);
-                rand_bin_vec.append(&mut new_rand);
-            }
-            // let v = convert_vec(ctx, &fpchip, &rand_bin_vec, Some(d));
-
-            let c_times_v = _matrix_times_bin_vec(ctx, &fpchip.gate(), &c, &rand_bin_vec);
-            let b_times_v = _matrix_times_bin_vec(ctx, &fpchip.gate(), &b, &rand_bin_vec);
-            let ab_times_v = b_times_v.mul(ctx, fpchip, a);
-
-            let dist_sq = c_times_v._dist_square(ctx, fpchip, &ab_times_v.v);
-
-            norm_sq_est_sum = fpchip.qadd(ctx, norm_sq_est_sum, dist_sq);
-            // println!("Est sum error= {:?}", fpchip.dequantization(*norm_sq_est_sum.value()));
-            prev_rand = hash_list[hash_list.len() - 1];
+            c.push(new_row);
         }
 
-        let norm_sq_est =
-            fpchip.qdiv(ctx, norm_sq_est_sum, Constant(fpchip.quantization(NUM_RNDS as f64)));
-        println!("Est error= {:?}", fpchip.dequantization(*norm_sq_est.value()));
-        // ensure dist is smaller than tolerance
-        // should depend on size of matrix; make sizes constant
-        // have to explicitly use quantization here
-        let quant_tol = (tol * (2u64.pow(PRECISION_BITS) as f64)) as u64;
-        // TODO: uncomment this
-        // fpchip.gate.check_less_than_safe(ctx, norm_sq_est, quant_tol);
+        // *** c should also be committed and hashed***
     }
 
     /// hash all the matrices in the given list
@@ -426,6 +497,102 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
         }
         return Self { matrix: c, num_rows: a.num_rows, num_col: b.num_col };
     }
+}
+
+/// Takes matrices [a] and [b] (viewed simply as field elements), calculates and outputs matrix product [c = a*b] outside of the zk circuit
+///
+/// Assumes matrix [a] and [b] are well defined matrices (all rows have the same size)
+///
+/// Uses trivial O(N^3) matrix multiplication algorithm
+///
+/// Doesn't contrain output in any way
+pub fn field_mat_mul<F: BigPrimeField>(
+    a: &Vec<Vec<AssignedValue<F>>>,
+    b: &Vec<Vec<AssignedValue<F>>>,
+) -> Vec<Vec<F>> {
+    // a.num_col == b.num_rows
+    assert_eq!(a[0].len(), b.len());
+
+    let mut c: Vec<Vec<F>> = Vec::new();
+    let N = a.len();
+    let K = a[0].len();
+    let M = b[0].len();
+
+    for i in 0..N {
+        let mut row: Vec<F> = Vec::new();
+        for j in 0..M {
+            let mut elem = F::zero();
+            for k in 0..K {
+                elem += a[i][k].value().clone() * b[k][j].value().clone();
+            }
+            row.push(elem);
+        }
+        c.push(row);
+    }
+    return c;
+}
+
+/// Takes matrices [a] and [b] (viewed simply as field elements), calculates and outputs matrix product [c = a*b] outside of the zk circuit and loads [c] into the context [ctx]
+///
+/// Assumes matrix [a] and [b] are well defined matrices (all rows have the same size)
+///
+/// Uses trivial O(N^3) matrix multiplication algorithm
+///
+/// Doesn't contrain output in any way
+pub fn honest_prover_mat_mul<F: BigPrimeField>(
+    ctx: &mut Context<F>,
+    a: &Vec<Vec<AssignedValue<F>>>,
+    b: &Vec<Vec<AssignedValue<F>>>,
+) -> Vec<Vec<AssignedValue<F>>> {
+    // field multiply matrices a and b
+    // for honest prover creates the correct product multiplied by the quantization_scale (S)
+    let c_s = field_mat_mul(a, b);
+    let mut assigned_c_s: Vec<Vec<AssignedValue<F>>> = Vec::new();
+
+    let num_rows = c_s.len();
+    let num_col = c_s[0].len();
+    for i in 0..num_rows {
+        let mut new_row: Vec<AssignedValue<F>> = Vec::new();
+        for j in 0..num_col {
+            let elem = c_s[i][j];
+            new_row.push(ctx.load_witness(elem));
+        }
+        assigned_c_s.push(new_row);
+    }
+    return assigned_c_s;
+}
+
+/// Multiplies this vector by matrix `a` in the zk-circuit and returns the constrained output [a.u] -- all assuming [a] and [u] are field elements, not fixed point elements
+///
+/// Assumes matrix [a] is well defined (rows are equal size)
+///
+/// #CONSTRAINTS = N^2
+pub fn field_mat_vec_mul<F: BigPrimeField>(
+    ctx: &mut Context<F>,
+    gate: &GateChip<F>,
+    a: &Vec<Vec<AssignedValue<F>>>,
+    v: &Vec<AssignedValue<F>>,
+) -> Vec<AssignedValue<F>> {
+    assert_eq!(a[0].len(), v.len());
+    let mut y: Vec<AssignedValue<F>> = Vec::new();
+    // #CONSTRAINTS = N^2
+    for row in a {
+        let mut w: Vec<QuantumCell<F>> = Vec::new();
+        for x in v {
+            w.push(Existing(*x));
+        }
+        let w = w;
+
+        let mut u: Vec<QuantumCell<F>> = Vec::new();
+        for x in row {
+            u.push(Existing(*x));
+        }
+        let u = u;
+
+        y.push(gate.inner_product(ctx, u, w));
+    }
+
+    return y;
 }
 
 /// Constructs a quantised ZKVector in {-1, 1}^[length] given [bin_vec] in {0,1}^D where D is greater than equal to length.
@@ -738,9 +905,9 @@ fn zk_random_verif_algo<F: ScalarField>(
     // fixed-point exp arithmetic
     let fpchip = FixedPointChip::<F, PRECISION_BITS>::default(lookup_bits);
     let gate = &fpchip.gate.gate;
-    const N: usize = 50;
-    const M: usize = 50;
-    const K: usize = 50;
+    const N: usize = 100;
+    const M: usize = 100;
+    const K: usize = 100;
 
     let mut rng = rand::thread_rng();
     let mut a: Vec<Vec<f64>> = Vec::new();
@@ -831,7 +998,7 @@ fn zk_random_verif_algo<F: ScalarField>(
     let elem = a.matrix[0][0].clone();
     poseidon.update(&[elem]);
     let init_rand = poseidon.squeeze(ctx, gate).unwrap();
-    ZkMatrix::verify_mul(ctx, &fpchip, &a, &b, &c, init_rand, 1e-3);
+    // ZkMatrix::verify_mul(ctx, &fpchip, &a, &b, &c, init_rand, 1e-3);
 
     // ORIGINAL MULTIPICATION
     // at git commit - a07444642cd61c4bd9732bb96f9762a3aa645fa1
@@ -875,7 +1042,14 @@ fn zk_random_verif_algo<F: ScalarField>(
     // N=M=K=100 are 6510984
     // At this point if you count visible constraints, they are = 5K*N^2 +106*K*N + 3000*K
     // - this very nicely accounts for all the N order constraint growth
-    // - smaller than observed for N^2 coeff by a factor of ~4.3 -- because of copying stuff??
+    // - smaller than observed for N^2 coeff by a factor of ~4.3
+    // -- because of copying stuff??
+    // -- because 4 cells per gate??
+
+    // Another minor improvement to inner_product- to use optimised gate.inner_product
+    // cells for
+    // N=M=K=50 are 1766484
+    // N=M=K=100 are 6207984
 }
 
 fn zk_trivial_mat_mul<F: ScalarField>(
