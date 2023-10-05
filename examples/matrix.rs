@@ -236,8 +236,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
 
     /// Takes quantised matrices `a` and `b`, their unscaled product `c_s`
     /// and a commitment to at least all of these matrices `init_rand`
-    /// and checks if `a*b = c_s` in field multiplication and outputs the correct
-    /// fixed point encoded product of `a*b`
+    /// and checks if `a*b = c_s` in field multiplication.
     ///
     /// `c_s`: unscaled product of `a` and `b`(produced by simply multiplying `a` and `b` as field elements)
     ///
@@ -250,7 +249,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
         b: &Self,
         c_s: &Vec<Vec<AssignedValue<F>>>,
         init_rand: &AssignedValue<F>,
-    ) -> Self {
+    ) {
         assert_eq!(a.num_col, b.num_rows);
         assert_eq!(c_s.len(), a.num_rows);
         assert_eq!(c_s[0].len(), b.num_col);
@@ -287,6 +286,17 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
             gate.is_equal(ctx, cs_times_v[i], ab_times_v[i]);
         }
 
+        // *** c_s should also be committed and hashed***
+    }
+
+    /// Takes `c_s` and divides it by the quantization factor to scale it;
+    /// Useful after matrix multiplication
+    pub fn rescale_matrix(
+        ctx: &mut Context<F>,
+        fpchip: &FixedPointChip<F, PRECISION_BITS>,
+        c_s: &Vec<Vec<AssignedValue<F>>>,
+    ) -> Self {
+        // #CONSTRAINTS = 94*N^2
         // now rescale c_s
         let mut c: Vec<Vec<AssignedValue<F>>> = Vec::new();
         let num_rows = c_s.len();
@@ -302,9 +312,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
             c.push(new_row);
         }
         return Self { matrix: c, num_rows: num_rows, num_col: num_col };
-        // *** c should also be committed and hashed***
     }
-
     /// hash all the matrices in the given list
     fn hash_matrix_list(
         ctx: &mut Context<F>,
@@ -679,7 +687,7 @@ fn zk_random_verif_algo<F: ScalarField>(
     let mut rng = rand::thread_rng();
     let mut a: Vec<Vec<f64>> = Vec::new();
     let mut b: Vec<Vec<f64>> = Vec::new();
-    let mut prod: Vec<Vec<f64>> = Vec::new();
+    // let mut prod: Vec<Vec<f64>> = Vec::new();
 
     for i in 0..N {
         let mut row: Vec<f64> = Vec::new();
@@ -767,7 +775,9 @@ fn zk_random_verif_algo<F: ScalarField>(
     poseidon.update(&[elem]);
     let init_rand = poseidon.squeeze(ctx, gate).unwrap();
 
-    let c = ZkMatrix::verify_mul(ctx, &fpchip, &a, &b, &c_s, &init_rand);
+    ZkMatrix::verify_mul(ctx, &fpchip, &a, &b, &c_s, &init_rand);
+    let c = ZkMatrix::rescale_matrix(ctx, &fpchip, &c_s);
+
     // c.print(&fpchip);
 
     // ORIGINAL MULTIPICATION
@@ -823,9 +833,10 @@ fn zk_random_verif_algo<F: ScalarField>(
 
     // Using field multiplication check algo
     // completely changed the verification algorithm
+    // at git commit - c326179c0a85a6a26ea938062861f22efcd53d28
     // cells for:
     // N=M=K=50 are 248203
-    // N=M=K=100 are 984153
+    // N=M=K=100 are 984153 - with lookup 15 improves to 864153
     // N=M=K=500 are 24511753
     // seems to grow 98*N^2
 }
