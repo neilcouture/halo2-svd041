@@ -235,13 +235,14 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
     }
 
     /// Takes quantised matrices `a` and `b`, their unscaled product `c_s`
-    /// and a commitment to at least all of these matrices `init_rand`
+    /// and a commitment (hash) to *at least* all of these matrices `init_rand`
     /// and checks if `a*b = c_s` in field multiplication.
     ///
-    /// `c_s`: unscaled product of `a` and `b`(produced by simply multiplying `a` and `b` as field elements)
+    /// `c_s`: unscaled product of `a` and `b`(produced by simply multiplying `a` and `b` as field elements);
+    ///  producing this is the costly part of matrix multiplication
     ///
     /// `init_rand`:  is the starting randomness/ challenge value; should commit to
-    /// at least the matrices `a, b, c_s`
+    /// *at least* the matrices `a, b, c_s`
     pub fn verify_mul(
         ctx: &mut Context<F>,
         fpchip: &FixedPointChip<F, PRECISION_BITS>,
@@ -285,8 +286,6 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
         for i in 0..cs_times_v.len() {
             gate.is_equal(ctx, cs_times_v[i], ab_times_v[i]);
         }
-
-        // *** c_s should also be committed and hashed***
     }
 
     /// Takes `c_s` and divides it by the quantization factor to scale it;
@@ -338,9 +337,9 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
     }
 }
 
-/// Takes matrices [a] and [b] (viewed simply as field elements), calculates and outputs matrix product [c = a*b] outside of the zk circuit
+/// Takes matrices `a` and `b` (viewed simply as field elements), calculates and outputs matrix product `c = a*b` outside of the zk circuit
 ///
-/// Assumes matrix [a] and [b] are well defined matrices (all rows have the same size)
+/// Assumes matrix `a` and `b` are well defined matrices (all rows have the same size) and asserts (outside of circuit) that they can be multiplied
 ///
 /// Uses trivial O(N^3) matrix multiplication algorithm
 ///
@@ -371,20 +370,20 @@ pub fn field_mat_mul<F: BigPrimeField>(
     return c;
 }
 
-/// Takes matrices [a] and [b] (viewed simply as field elements), calculates and outputs matrix product [c = a*b] outside of the zk circuit and loads [c] into the context [ctx]
+/// Takes matrices `a` and `b` (viewed simply as field elements), calculates matrix product `c_s = a*b` outside of the zk circuit, loads `c_s` into the context `ctx` and outputs the loaded matrix
 ///
-/// Assumes matrix [a] and [b] are well defined matrices (all rows have the same size)
+/// Assumes matrix `a` and `b` are well defined matrices (all rows have the same size) and asserts (outside of circuit) that they can be multiplied
 ///
 /// Uses trivial O(N^3) matrix multiplication algorithm
 ///
-/// Doesn't contrain output in any way
+/// Doesn't contrain output matrix in any way
 pub fn honest_prover_mat_mul<F: BigPrimeField>(
     ctx: &mut Context<F>,
     a: &Vec<Vec<AssignedValue<F>>>,
     b: &Vec<Vec<AssignedValue<F>>>,
 ) -> Vec<Vec<AssignedValue<F>>> {
     // field multiply matrices a and b
-    // for honest prover creates the correct product multiplied by the quantization_scale (S)
+    // for honest prover creates the correct product multiplied by the quantization_scale (S) when a and b are field point quantized
     let c_s = field_mat_mul(a, b);
     let mut assigned_c_s: Vec<Vec<AssignedValue<F>>> = Vec::new();
 
@@ -401,9 +400,9 @@ pub fn honest_prover_mat_mul<F: BigPrimeField>(
     return assigned_c_s;
 }
 
-/// Multiplies this vector by matrix `a` in the zk-circuit and returns the constrained output [a.u] -- all assuming [a] and [u] are field elements, not fixed point elements
+/// Multiplies matrix `a` to vector `v` in the zk-circuit and returns the constrained output `a.v` -- all assuming `a` and `v` are field elements, not fixed point encoded
 ///
-/// Assumes matrix [a] is well defined (rows are equal size)
+/// Assumes matrix `a` is well defined (rows are equal size) and asserts (outside circuit) `a` can be multiplied to `v`
 ///
 /// #CONSTRAINTS = N^2
 pub fn field_mat_vec_mul<F: BigPrimeField>(
@@ -680,8 +679,8 @@ fn zk_random_verif_algo<F: ScalarField>(
     // fixed-point arithmetic
     let fpchip = FixedPointChip::<F, PRECISION_BITS>::default(lookup_bits);
     let gate = &fpchip.gate.gate;
-    const N: usize = 5;
-    const M: usize = 5;
+    const N: usize = 120;
+    const M: usize = 10;
     const K: usize = 5;
 
     let mut rng = rand::thread_rng();
@@ -857,4 +856,4 @@ fn main() {
 
 // to run:
 // export LOOKUP_BITS=12
-// cargo run --example matrix -- --name divide_by_32 -k 16 mock
+// cargo run --example matrix -- --name divide_by_32 -k 20 mock
