@@ -1,8 +1,30 @@
 #![allow(dead_code)]
 #[allow(unused_imports)]
 use clap::Parser;
-use halo2_base::gates::{GateChip, GateInstructions, RangeChip, RangeInstructions};
-use halo2_base::utils::{BigPrimeField, ScalarField};
+
+use halo2_base::{
+    gates::{
+        builder::{GateCircuitBuilder, GateThreadBuilder},
+        GateChip, GateInstructions, RangeChip, RangeInstructions,
+    },
+    halo2_proofs::{
+        dev::MockProver,
+        halo2curves::bn256::{Bn256, Fr, G1Affine},
+        plonk::{create_proof, keygen_pk, keygen_vk, verify_proof, Error},
+        poly::{
+            commitment::ParamsProver,
+            kzg::{
+                commitment::{KZGCommitmentScheme, ParamsKZG},
+                multiopen::{ProverSHPLONK, VerifierSHPLONK},
+                strategy::SingleStrategy,
+            },
+        },
+        transcript::{
+            Blake2bRead, Blake2bWrite, Challenge255, TranscriptReadBuffer, TranscriptWriterBuffer,
+        },
+    },
+    utils::{bit_length, BigPrimeField, ScalarField},
+};
 use halo2_base::{AssignedValue, QuantumCell};
 use halo2_base::{
     Context,
@@ -16,6 +38,11 @@ use std::env::{set_var, var};
 
 use poseidon::PoseidonChip;
 use rand::Rng;
+
+use axiom_eth::rlp::{
+    builder::{FnSynthesize, RlcCircuitBuilder, RlcThreadBuilder},
+    rlc::RlcChip,
+};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CircuitInput {
@@ -178,6 +205,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkVector<F, PRECISION_BITS> {
     }
 }
 
+#[derive(Clone)]
 pub struct ZkMatrix<F: BigPrimeField, const PRECISION_BITS: u32> {
     matrix: Vec<Vec<AssignedValue<F>>>,
     num_rows: usize,
@@ -667,11 +695,200 @@ fn test_field_mat_times_vec<F: ScalarField>(
     zku1.print(&fpchip);
 }
 
-fn zk_random_verif_algo<F: ScalarField>(
-    ctx: &mut Context<F>,
-    input: CircuitInput,
-    make_public: &mut Vec<AssignedValue<F>>,
-) {
+// fn zk_random_verif_algo<F: ScalarField>(
+//     ctx: &mut Context<F>,
+//     input: CircuitInput,
+//     make_public: &mut Vec<AssignedValue<F>>,
+// ) {
+//     // lookup bits must agree with the size of the lookup table, which is specified by an environmental variable
+//     let lookup_bits =
+//         var("LOOKUP_BITS").unwrap_or_else(|_| panic!("LOOKUP_BITS not set")).parse().unwrap();
+//     const PRECISION_BITS: u32 = 32;
+//     // fixed-point arithmetic
+//     let fpchip = FixedPointChip::<F, PRECISION_BITS>::default(lookup_bits);
+//     let gate = &fpchip.gate.gate;
+//     const N: usize = 120;
+//     const M: usize = 10;
+//     const K: usize = 5;
+
+//     let mut rng = rand::thread_rng();
+//     let mut a: Vec<Vec<f64>> = Vec::new();
+//     let mut b: Vec<Vec<f64>> = Vec::new();
+//     // let mut prod: Vec<Vec<f64>> = Vec::new();
+
+//     for i in 0..N {
+//         let mut row: Vec<f64> = Vec::new();
+//         for j in 0..K {
+//             row.push(rng.gen_range(-1.0..1.0));
+//         }
+//         a.push(row);
+//     }
+//     let a = a;
+//     for i in 0..K {
+//         let mut row: Vec<f64> = Vec::new();
+//         for j in 0..M {
+//             row.push(rng.gen_range(-1.0..1.0));
+//         }
+//         b.push(row);
+//     }
+//     let b = b;
+
+//     // for i in 0..N {
+//     //     let mut row: Vec<f64> = Vec::new();
+//     //     for j in 0..M {
+//     //         let mut elem = 0.0;
+//     //         for k in 0..K {
+//     //             elem += a[i][k] * b[k][j];
+//     //         }
+//     //         row.push(elem);
+//     //     }
+//     //     prod.push(row);
+//     // }
+//     // let prod = prod;
+
+//     // println!("a = ");
+//     // print!("[");
+//     // for i in 0..N {
+//     //     print!("[");
+//     //     for j in 0..K {
+//     //         print!("{:.2}, ", a[i][j]);
+//     //     }
+//     //     print!("],\n");
+//     // }
+//     // print!("]\n");
+
+//     // println!("b = ");
+//     // print!("[");
+//     // for i in 0..K {
+//     //     print!("[");
+//     //     for j in 0..M {
+//     //         print!("{:.2}, ", b[i][j]);
+//     //     }
+//     //     print!("],\n");
+//     // }
+//     // print!("]\n");
+
+//     // println!("prod = ");
+//     // print!("[");
+//     // for i in 0..N {
+//     //     print!("[");
+//     //     for j in 0..M {
+//     //         print!("{:.2}, ", prod[i][j]);
+//     //     }
+//     //     print!("],\n");
+//     // }
+//     // print!("]\n");
+
+//     // #CONSTRAINTS = these lead to 3*N^2 cells
+//     let a = ZkMatrix::new(ctx, &fpchip, &a);
+//     let b = ZkMatrix::new(ctx, &fpchip, &b);
+//     // no constraints here:
+//     let c_s = honest_prover_mat_mul(ctx, &a.matrix, &b.matrix);
+
+//     // TODO: initial hashing
+//     // manual hash of all matrix elements
+//     // hashing requires ~1000 cells per element
+//     // let init_rand = ZkMatrix::hash_matrix_list(ctx, gate, vec![&a, &b, &c]);
+//     // dbg!(init_rand.value());
+
+//     // #CONSTRAINTS = 3000= O(1)
+//     // init_rand = hash(a[0][0])
+//     const T: usize = 3;
+//     const RATE: usize = 2;
+//     const R_F: usize = 8;
+//     const R_P: usize = 57;
+//     let mut poseidon = PoseidonChip::<F, T, RATE>::new(ctx, R_F, R_P).unwrap();
+//     let elem = a.matrix[0][0].clone();
+//     poseidon.update(&[elem]);
+//     let init_rand = poseidon.squeeze(ctx, gate).unwrap();
+
+//     ZkMatrix::verify_mul(ctx, &fpchip, &a, &b, &c_s, &init_rand);
+//     let c = ZkMatrix::rescale_matrix(ctx, &fpchip, &c_s);
+
+//     // c.print(&fpchip);
+
+//     // ORIGINAL MULTIPICATION
+//     // at git commit - a07444642cd61c4bd9732bb96f9762a3aa645fa1
+//     // Multiplication cost 250 per mul
+//     // Total cost = 26000*dim^2 with 30 hashes
+//     // 3000 would just be from init_hash
+//     // Hashing [NUM_RNDS] times = 2000 per hash- only 30*2000 overall- small
+//     // 250 for a single vector multiplication per element
+//     // This 250 cost is coming from the rescaling required in qmul (signed_div_scale)
+
+//     // NEW MULTIPICATION
+//     // at git commit - 367bee6a27a606e006fdfac60927d22fed996399
+//     // costs 94 per mul- will also depend on lookup table
+
+//     // With efficient {-1, 1} vector multiplication
+//     // at git commit - 61a961ab927a078cd4161d7153edd0a6298b3087
+//     // cells for
+//     // N=M=K=20 are 1571094
+//     // N=M=K=50 are 8600994
+//     // N=M=K=100 are 33529494
+//     // Number of cells grows as 3440*N^2 = 1150*3N^2
+//     // 94*30 = 2820
+
+//     // With amortized rescaling
+//     // at git commit - f6c0bc6d145af60e2da3fcc1b1e76a6f00daebe4
+//     // cells for
+//     // N=M=K=20 are 539784
+//     // N=M=K=50 are 2148984
+//     // N=M=K=100 are 7722984
+//     // Number of cells grows as N^2 + 94*N
+//     // 723*N^2 + 3030*N + 189984
+//     // (mul cost)*(num iter) = 94*30 = 2820 --> this contributes to the coeff of N
+//     // (hashing cost)*(num iter) = 3000*30 --> contributes to the constant factor
+//     // 723/30 = 24
+
+//     // Minor improvement to inner_product
+//     // at git commit - 994f4ac4d870d97aedf7ea7fa8095914028d33ed
+//     // cells for
+//     // N=M=K=20 are 489384
+//     // N=M=K=50 are 1842984
+//     // N=M=K=100 are 6510984
+//     // At this point if you count visible constraints, they are = 5K*N^2 +106*K*N + 3000*K
+//     // - this very nicely accounts for all the N order constraint growth
+//     // - smaller than observed for N^2 coeff by a factor of ~4.3
+//     // -- because of copying stuff??
+//     // -- because 4 cells per gate??
+
+//     // Another minor improvement to inner_product- to use optimised gate.inner_product
+//     // cells for
+//     // N=M=K=50 are 1766484
+//     // N=M=K=100 are 6207984
+
+//     // Using field multiplication check algo
+//     // completely changed the verification algorithm
+//     // at git commit - c326179c0a85a6a26ea938062861f22efcd53d28
+//     // cells for:
+//     // N=M=K=50 are 248203
+//     // N=M=K=100 are 984153 - with lookup 15 improves to 864153
+//     // N=M=K=500 are 24511753
+//     // seems to grow 98*N^2
+// }
+
+// fn main() {
+//     set_var("LOOKUP_BITS", 12.to_string());
+
+//     env_logger::init();
+
+//     let args = Cli::parse();
+
+//     // run different zk commands based on the command line arguments
+//     run(zk_random_verif_algo, args);
+// }
+
+// Relevant: rlc_test_circuit, test_rlc(), test_mock_rlc()
+
+fn rlc_based_random_verif<F: ScalarField>(
+    mut builder: RlcThreadBuilder<F>,
+    // ctx: &mut Context<F>,
+    // input: CircuitInput,
+    // make_public: &mut Vec<AssignedValue<F>>,
+) -> RlcCircuitBuilder<F, impl FnSynthesize<F>> {
+    let ctx = builder.gate_builder.main(0);
+
     // lookup bits must agree with the size of the lookup table, which is specified by an environmental variable
     let lookup_bits =
         var("LOOKUP_BITS").unwrap_or_else(|_| panic!("LOOKUP_BITS not set")).parse().unwrap();
@@ -679,9 +896,9 @@ fn zk_random_verif_algo<F: ScalarField>(
     // fixed-point arithmetic
     let fpchip = FixedPointChip::<F, PRECISION_BITS>::default(lookup_bits);
     let gate = &fpchip.gate.gate;
-    const N: usize = 120;
-    const M: usize = 10;
-    const K: usize = 5;
+    const N: usize = 100;
+    const M: usize = 100;
+    const K: usize = 100;
 
     let mut rng = rand::thread_rng();
     let mut a: Vec<Vec<f64>> = Vec::new();
@@ -757,98 +974,38 @@ fn zk_random_verif_algo<F: ScalarField>(
     // no constraints here:
     let c_s = honest_prover_mat_mul(ctx, &a.matrix, &b.matrix);
 
-    // TODO: initial hashing
-    // manual hash of all matrix elements
-    // hashing requires ~1000 cells per element
-    // let init_rand = ZkMatrix::hash_matrix_list(ctx, gate, vec![&a, &b, &c]);
-    // dbg!(init_rand.value());
+    // copied from rlc_test_circuit
+    let synthesize_phase1 = move |builder: &mut RlcThreadBuilder<F>, rlc: &RlcChip<F>| {
+        // the closure captures the `inputs` variable
+        println!("phase 1 synthesize begin");
+        let fpchip2 = FixedPointChip::<F, PRECISION_BITS>::default(lookup_bits);
+        let gate2 = &fpchip2.gate.gate;
 
-    // #CONSTRAINTS = 3000= O(1)
-    // init_rand = hash(a[0][0])
-    const T: usize = 3;
-    const RATE: usize = 2;
-    const R_F: usize = 8;
-    const R_P: usize = 57;
-    let mut poseidon = PoseidonChip::<F, T, RATE>::new(ctx, R_F, R_P).unwrap();
-    let elem = a.matrix[0][0].clone();
-    poseidon.update(&[elem]);
-    let init_rand = poseidon.squeeze(ctx, gate).unwrap();
+        let (ctx_gate, ctx_rlc) = builder.rlc_ctx_pair();
 
-    ZkMatrix::verify_mul(ctx, &fpchip, &a, &b, &c_s, &init_rand);
-    let c = ZkMatrix::rescale_matrix(ctx, &fpchip, &c_s);
+        // **which ctx???
+        // TODO: this is unconstrained
+        let init_rand = ctx_gate.load_witness(*rlc.gamma());
+        ZkMatrix::verify_mul(ctx_gate, &fpchip2, &a, &b, &c_s, &init_rand);
+        let c = ZkMatrix::rescale_matrix(ctx_gate, &fpchip2, &c_s);
+        // c.print(&fpchip);
+    };
 
-    // c.print(&fpchip);
-
-    // ORIGINAL MULTIPICATION
-    // at git commit - a07444642cd61c4bd9732bb96f9762a3aa645fa1
-    // Multiplication cost 250 per mul
-    // Total cost = 26000*dim^2 with 30 hashes
-    // 3000 would just be from init_hash
-    // Hashing [NUM_RNDS] times = 2000 per hash- only 30*2000 overall- small
-    // 250 for a single vector multiplication per element
-    // This 250 cost is coming from the rescaling required in qmul (signed_div_scale)
-
-    // NEW MULTIPICATION
-    // at git commit - 367bee6a27a606e006fdfac60927d22fed996399
-    // costs 94 per mul- will also depend on lookup table
-
-    // With efficient {-1, 1} vector multiplication
-    // at git commit - 61a961ab927a078cd4161d7153edd0a6298b3087
-    // cells for
-    // N=M=K=20 are 1571094
-    // N=M=K=50 are 8600994
-    // N=M=K=100 are 33529494
-    // Number of cells grows as 3440*N^2 = 1150*3N^2
-    // 94*30 = 2820
-
-    // With amortized rescaling
-    // at git commit - f6c0bc6d145af60e2da3fcc1b1e76a6f00daebe4
-    // cells for
-    // N=M=K=20 are 539784
-    // N=M=K=50 are 2148984
-    // N=M=K=100 are 7722984
-    // Number of cells grows as N^2 + 94*N
-    // 723*N^2 + 3030*N + 189984
-    // (mul cost)*(num iter) = 94*30 = 2820 --> this contributes to the coeff of N
-    // (hashing cost)*(num iter) = 3000*30 --> contributes to the constant factor
-    // 723/30 = 24
-
-    // Minor improvement to inner_product
-    // at git commit - 994f4ac4d870d97aedf7ea7fa8095914028d33ed
-    // cells for
-    // N=M=K=20 are 489384
-    // N=M=K=50 are 1842984
-    // N=M=K=100 are 6510984
-    // At this point if you count visible constraints, they are = 5K*N^2 +106*K*N + 3000*K
-    // - this very nicely accounts for all the N order constraint growth
-    // - smaller than observed for N^2 coeff by a factor of ~4.3
-    // -- because of copying stuff??
-    // -- because 4 cells per gate??
-
-    // Another minor improvement to inner_product- to use optimised gate.inner_product
-    // cells for
-    // N=M=K=50 are 1766484
-    // N=M=K=100 are 6207984
-
-    // Using field multiplication check algo
-    // completely changed the verification algorithm
-    // at git commit - c326179c0a85a6a26ea938062861f22efcd53d28
-    // cells for:
-    // N=M=K=50 are 248203
-    // N=M=K=100 are 984153 - with lookup 15 improves to 864153
-    // N=M=K=500 are 24511753
-    // seems to grow 98*N^2
+    RlcCircuitBuilder::new(builder, None, synthesize_phase1)
 }
 
 fn main() {
+    const DEG: u32 = 16;
     set_var("LOOKUP_BITS", 12.to_string());
 
     env_logger::init();
 
-    let args = Cli::parse();
+    // Mock prover
+    let circuit = rlc_based_random_verif(RlcThreadBuilder::<Fr>::mock());
 
-    // run different zk commands based on the command line arguments
-    run(zk_random_verif_algo, args);
+    circuit.config(DEG as usize, Some(6));
+
+    MockProver::run(DEG, &circuit, vec![]).unwrap().assert_satisfied();
 }
 
 // TODO:
