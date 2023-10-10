@@ -37,7 +37,7 @@ use serde::{Deserialize, Serialize};
 use std::env::{set_var, var};
 
 use poseidon::PoseidonChip;
-use rand::Rng;
+use rand::{rngs::StdRng, Rng, SeedableRng};
 
 use axiom_eth::rlp::{
     builder::{FnSynthesize, RlcCircuitBuilder, RlcThreadBuilder},
@@ -879,10 +879,23 @@ fn test_field_mat_times_vec<F: ScalarField>(
 //     run(zk_random_verif_algo, args);
 // }
 
+/// Returns challenge value as a AssignedValue
+///
+/// `ctx_rlc` should be the RLC context
+///
+/// gamma should be the challenge value as a field element
+///
+/// Copied from the corresponding private function of RlcChip
+fn load_gamma<F: ScalarField>(ctx_rlc: &mut Context<F>, gamma: F) -> AssignedValue<F> {
+    ctx_rlc.assign_region_last([Constant(F::one()), Constant(F::zero()), Witness(gamma)], [0])
+}
+
 // Relevant: rlc_test_circuit, test_rlc(), test_mock_rlc()
 
 fn rlc_based_random_verif<F: ScalarField>(
     mut builder: RlcThreadBuilder<F>,
+    a: &Vec<Vec<f64>>,
+    b: &Vec<Vec<f64>>,
     // ctx: &mut Context<F>,
     // input: CircuitInput,
     // make_public: &mut Vec<AssignedValue<F>>,
@@ -892,13 +905,104 @@ fn rlc_based_random_verif<F: ScalarField>(
     // lookup bits must agree with the size of the lookup table, which is specified by an environmental variable
     let lookup_bits =
         var("LOOKUP_BITS").unwrap_or_else(|_| panic!("LOOKUP_BITS not set")).parse().unwrap();
+
     const PRECISION_BITS: u32 = 32;
+
     // fixed-point arithmetic
     let fpchip = FixedPointChip::<F, PRECISION_BITS>::default(lookup_bits);
     let gate = &fpchip.gate.gate;
-    const N: usize = 100;
-    const M: usize = 100;
-    const K: usize = 100;
+
+    // let mut prod: Vec<Vec<f64>> = Vec::new();
+    // for i in 0..a.len() {
+    //     let mut row: Vec<f64> = Vec::new();
+    //     for j in 0..b[0].len() {
+    //         let mut elem = 0.0;
+    //         for k in 0..a[0].len() {
+    //             elem += a[i][k] * b[k][j];
+    //         }
+    //         row.push(elem);
+    //     }
+    //     prod.push(row);
+    // }
+    // let prod = prod;
+
+    // println!("a = ");
+    // print!("[");
+    // for i in 0..a.len() {
+    //     print!("[");
+    //     for j in 0..a[0].len() {
+    //         print!("{:.2}, ", a[i][j]);
+    //     }
+    //     print!("],\n");
+    // }
+    // print!("]\n");
+
+    // println!("b = ");
+    // print!("[");
+    // for i in 0..b.len() {
+    //     print!("[");
+    //     for j in 0..b[0].len() {
+    //         print!("{:.2}, ", b[i][j]);
+    //     }
+    //     print!("],\n");
+    // }
+    // print!("]\n");
+
+    // println!("prod = ");
+    // print!("[");
+    // for i in 0..prod.len() {
+    //     print!("[");
+    //     for j in 0..prod[0].len() {
+    //         print!("{:.2}, ", prod[i][j]);
+    //     }
+    //     print!("],\n");
+    // }
+    // print!("]\n");
+
+    // #CONSTRAINTS = these lead to 3*N^2 cells
+    let a = ZkMatrix::new(ctx, &fpchip, &a);
+    let b = ZkMatrix::new(ctx, &fpchip, &b);
+    // no constraints here:
+    let c_s = honest_prover_mat_mul(ctx, &a.matrix, &b.matrix);
+
+    // copied from rlc_test_circuit
+    let synthesize_phase1 = move |builder: &mut RlcThreadBuilder<F>, rlc: &RlcChip<F>| {
+        // the closure captures the `inputs` variable
+        println!("phase 1 synthesize begin");
+        let fpchip2 = FixedPointChip::<F, PRECISION_BITS>::default(lookup_bits);
+        // let gate2 = &fpchip2.gate.gate;
+
+        let (ctx_gate, ctx_rlc) = builder.rlc_ctx_pair();
+
+        // **which ctx???
+        // TODO: this is unconstrained
+        // use rlc.load_gamma?
+
+        let init_rand = load_gamma(ctx_rlc, *rlc.gamma());
+        // let init_rand = ctx_gate.load_witness(*rlc.gamma());
+
+        println!("Rand val = {:?}", init_rand.value());
+
+        ZkMatrix::verify_mul(ctx_gate, &fpchip2, &a, &b, &c_s, &init_rand);
+        let c = ZkMatrix::rescale_matrix(ctx_gate, &fpchip2, &c_s);
+        // println!("The matrix c is = ");
+        // c.print(&fpchip2);
+    };
+
+    RlcCircuitBuilder::new(builder, None, synthesize_phase1)
+}
+
+fn main() {
+    const DEG: u32 = 16;
+    const MOCK: bool = true;
+
+    set_var("LOOKUP_BITS", 12.to_string());
+
+    env_logger::init();
+
+    const N: usize = 5;
+    const M: usize = 5;
+    const K: usize = 5;
 
     let mut rng = rand::thread_rng();
     let mut a: Vec<Vec<f64>> = Vec::new();
@@ -922,90 +1026,58 @@ fn rlc_based_random_verif<F: ScalarField>(
     }
     let b = b;
 
-    // for i in 0..N {
-    //     let mut row: Vec<f64> = Vec::new();
-    //     for j in 0..M {
-    //         let mut elem = 0.0;
-    //         for k in 0..K {
-    //             elem += a[i][k] * b[k][j];
-    //         }
-    //         row.push(elem);
-    //     }
-    //     prod.push(row);
-    // }
-    // let prod = prod;
+    if MOCK {
+        // Mock prover
+        let circuit = rlc_based_random_verif(RlcThreadBuilder::<Fr>::mock(), &a, &b);
 
-    // println!("a = ");
-    // print!("[");
-    // for i in 0..N {
-    //     print!("[");
-    //     for j in 0..K {
-    //         print!("{:.2}, ", a[i][j]);
-    //     }
-    //     print!("],\n");
-    // }
-    // print!("]\n");
+        circuit.config(DEG as usize, Some(6));
 
-    // println!("b = ");
-    // print!("[");
-    // for i in 0..K {
-    //     print!("[");
-    //     for j in 0..M {
-    //         print!("{:.2}, ", b[i][j]);
-    //     }
-    //     print!("],\n");
-    // }
-    // print!("]\n");
+        MockProver::run(DEG, &circuit, vec![]).unwrap().assert_satisfied();
+    } else {
+        // Proof and verification
 
-    // println!("prod = ");
-    // print!("[");
-    // for i in 0..N {
-    //     print!("[");
-    //     for j in 0..M {
-    //         print!("{:.2}, ", prod[i][j]);
-    //     }
-    //     print!("],\n");
-    // }
-    // print!("]\n");
+        let mut rng = StdRng::from_seed([0u8; 32]);
+        let params = ParamsKZG::<Bn256>::setup(DEG, &mut rng);
+        let circuit = rlc_based_random_verif(RlcThreadBuilder::keygen(), &a, &b);
+        circuit.config(DEG as usize, Some(6));
 
-    // #CONSTRAINTS = these lead to 3*N^2 cells
-    let a = ZkMatrix::new(ctx, &fpchip, &a);
-    let b = ZkMatrix::new(ctx, &fpchip, &b);
-    // no constraints here:
-    let c_s = honest_prover_mat_mul(ctx, &a.matrix, &b.matrix);
+        println!("vk gen started");
+        let vk = keygen_vk(&params, &circuit).expect("VerifyingKey generation failed");
+        println!("vk gen done");
+        let pk = keygen_pk(&params, vk, &circuit).expect("ProvingKey generation failed");
+        println!("pk gen done");
+        println!();
+        println!("==============STARTING PROOF GEN===================");
+        let break_points = circuit.break_points.take();
+        drop(circuit);
+        let circuit = rlc_based_random_verif(RlcThreadBuilder::prover(), &a, &b);
+        *circuit.break_points.borrow_mut() = break_points;
 
-    // copied from rlc_test_circuit
-    let synthesize_phase1 = move |builder: &mut RlcThreadBuilder<F>, rlc: &RlcChip<F>| {
-        // the closure captures the `inputs` variable
-        println!("phase 1 synthesize begin");
-        let fpchip2 = FixedPointChip::<F, PRECISION_BITS>::default(lookup_bits);
-        let gate2 = &fpchip2.gate.gate;
-
-        let (ctx_gate, ctx_rlc) = builder.rlc_ctx_pair();
-
-        // **which ctx???
-        // TODO: this is unconstrained
-        let init_rand = ctx_gate.load_witness(*rlc.gamma());
-        ZkMatrix::verify_mul(ctx_gate, &fpchip2, &a, &b, &c_s, &init_rand);
-        let c = ZkMatrix::rescale_matrix(ctx_gate, &fpchip2, &c_s);
-        // c.print(&fpchip);
-    };
-
-    RlcCircuitBuilder::new(builder, None, synthesize_phase1)
-}
-
-fn main() {
-    const DEG: u32 = 16;
-    set_var("LOOKUP_BITS", 12.to_string());
-
-    env_logger::init();
-
-    // Mock prover
-    let circuit = rlc_based_random_verif(RlcThreadBuilder::<Fr>::mock());
-
-    circuit.config(DEG as usize, Some(6));
-
-    MockProver::run(DEG, &circuit, vec![]).unwrap().assert_satisfied();
+        let mut transcript = Blake2bWrite::<_, _, Challenge255<_>>::init(vec![]);
+        create_proof::<
+            KZGCommitmentScheme<Bn256>,
+            ProverSHPLONK<'_, Bn256>,
+            Challenge255<G1Affine>,
+            _,
+            Blake2bWrite<Vec<u8>, G1Affine, Challenge255<G1Affine>>,
+            _,
+        >(&params, &pk, &[circuit], &[&[]], rng, &mut transcript)
+        .expect("Proof generation failed");
+        let proof = transcript.finalize();
+        println!("proof gen done");
+        let verifier_params = params.verifier_params();
+        let strategy = SingleStrategy::new(verifier_params);
+        let mut transcript = Blake2bRead::<_, _, Challenge255<_>>::init(&proof[..]);
+        verify_proof::<
+            KZGCommitmentScheme<Bn256>,
+            VerifierSHPLONK<'_, Bn256>,
+            Challenge255<G1Affine>,
+            Blake2bRead<&[u8], G1Affine, Challenge255<G1Affine>>,
+            SingleStrategy<'_, Bn256>,
+        >(verifier_params, pk.get_vk(), strategy, &[&[]], &mut transcript)
+        .unwrap();
+        println!("verify done");
+    }
 }
 
 // TODO:

@@ -48,6 +48,7 @@ fn rlc_test_circuit<F: ScalarField>(
         let gate = GateChip::default();
 
         let (ctx_gate, ctx_rlc) = builder.rlc_ctx_pair();
+        println!("Rand val = {:?}", rlc.gamma());
         let rlc_trace = rlc.compute_rlc((ctx_gate, ctx_rlc), &gate, inputs, len);
         let rlc_val = *rlc_trace.rlc_val.value();
         let real_rlc = compute_rlc_acc(&_inputs[.._len], *rlc.gamma());
@@ -303,5 +304,5 @@ fn main() {
 
     env_logger::init();
 
-    test_mock_rlc();
+    test_rlc();
 }
