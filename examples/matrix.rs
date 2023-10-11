@@ -11,10 +11,10 @@ use halo2_base::{
 use halo2_scaffold::gadget::fixed_point::{FixedPointChip, FixedPointInstructions};
 use halo2_scaffold::scaffold::cmd::Cli;
 use halo2_scaffold::scaffold::run;
-use serde::{Deserialize, Serialize};
-use std::env::{set_var, var};
 use poseidon::PoseidonChip;
 use rand::Rng;
+use serde::{Deserialize, Serialize};
+use std::env::{set_var, var};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CircuitInput {
@@ -22,7 +22,7 @@ pub struct CircuitInput {
     pub m: Vec<Vec<f64>>,
     pub u: Vec<Vec<f64>>,
     pub v: Vec<Vec<f64>>,
-     // field element, but easier to deserialize as a string
+    // field element, but easier to deserialize as a string
 }
 
 /// ZKVector is always associated to a fixed point chip for which we need [PRECISION_BITS]
@@ -188,18 +188,14 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkVector<F, PRECISION_BITS> {
         ctx: &mut Context<F>,
         fpchip: &FixedPointChip<F, PRECISION_BITS>,
     ) {
-        
         let bound = 2u64.pow(max_bits);
         let bound_field = ctx.load_witness(F::from(bound));
 
-        for i in 0..self.v.len(){
+        for i in 0..self.v.len() {
             let ele_add = fpchip.qadd(ctx, self.v[i], bound_field);
-            fpchip.gate.check_less_than_safe(ctx, ele_add, 2*bound);
+            fpchip.gate.check_less_than_safe(ctx, ele_add, 2 * bound);
         }
-        
     }
-
-
 }
 
 pub struct ZkMatrix<F: BigPrimeField, const PRECISION_BITS: u32> {
@@ -361,7 +357,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
         return init_rand;
     }
 
-    /// takes as input two quantized matrices 'a', 'b' and check that the difference of each coefficient is smaller than tol, 
+    /// takes as input two quantized matrices 'a', 'b' and check that the difference of each coefficient is smaller than tol,
     /// in the sense that the field elements of 'a' and 'b' represent real numbers throught the fixed point chip
     /// here "a" and "b" are defined as Vec<Vec<AssignedValue<F>>> rather than &Self for more flexibility when calling the function
 
@@ -379,38 +375,38 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
 
         let quant_tol_field = ctx.load_witness(F::from(quant_tol));
 
-        for i in 0..a.len(){
-            for j in 0..a[0].len(){
+        for i in 0..a.len() {
+            for j in 0..a[0].len() {
                 let ele = fpchip.qsub(ctx, a[i][j], b[i][j]);
                 let ele_add = fpchip.qadd(ctx, ele, quant_tol_field);
-                fpchip.gate.check_less_than_safe(ctx, ele_add, 2*quant_tol);
+                fpchip.gate.check_less_than_safe(ctx, ele_add, 2 * quant_tol);
             }
         }
     }
 
     /// given a matrix of field elements 'a' and a field element 'scalar_id', checks that 'a' is close to the identity matrix times 'scalar_id',
     /// in the sense that the absolute value of the difference of each coefficient must be less than (tol*scaling of the fixed point chip)
-    
+
     pub fn check_mat_id(
         ctx: &mut Context<F>,
         fpchip: &FixedPointChip<F, PRECISION_BITS>,
         a: &Vec<Vec<AssignedValue<F>>>,
         scalar_id: AssignedValue<F>,
         tol: f64,
-    ){
+    ) {
         let quant_tol = (tol * (2u64.pow(PRECISION_BITS) as f64)) as u64;
 
         let quant_tol_field = ctx.load_witness(F::from(quant_tol));
 
-        for i in 0..a.len(){
-            for j in 0..a[0].len(){
+        for i in 0..a.len() {
+            for j in 0..a[0].len() {
                 if i == j {
                     let ele = fpchip.qsub(ctx, a[i][i], scalar_id);
                     let ele_add = fpchip.qadd(ctx, ele, quant_tol_field);
-                    fpchip.gate.check_less_than_safe(ctx, ele_add, 2*quant_tol);
+                    fpchip.gate.check_less_than_safe(ctx, ele_add, 2 * quant_tol);
                 } else {
                     let ele_add = fpchip.qadd(ctx, a[i][j], quant_tol_field);
-                    fpchip.gate.check_less_than_safe(ctx, ele_add, 2*quant_tol);
+                    fpchip.gate.check_less_than_safe(ctx, ele_add, 2 * quant_tol);
                 }
             }
         }
@@ -423,22 +419,18 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
         fpchip: &FixedPointChip<F, PRECISION_BITS>,
         a: &Vec<Vec<AssignedValue<F>>>,
         tol: f64,
-    ){
+    ) {
         let quant_tol = (tol * (2u64.pow(PRECISION_BITS) as f64)) as u64;
 
         let quant_tol_field = ctx.load_witness(F::from(quant_tol));
 
-        for i in 0..a.len(){
-            for j in 0..a[0].len(){
-                    let ele_add = fpchip.qadd(ctx, a[i][j], quant_tol_field);
-                    fpchip.gate.check_less_than_safe(ctx, ele_add, 2*quant_tol);
-                }
+        for i in 0..a.len() {
+            for j in 0..a[0].len() {
+                let ele_add = fpchip.qadd(ctx, a[i][j], quant_tol_field);
+                fpchip.gate.check_less_than_safe(ctx, ele_add, 2 * quant_tol);
             }
         }
-    
-
-
-
+    }
 
     // function that outputs the transpose matrix of a matrix 'a'
 
@@ -446,21 +438,18 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
         ctx: &mut Context<F>,
         fpchip: &FixedPointChip<F, PRECISION_BITS>,
         a: &Self,
-    )-> Self {
-
+    ) -> Self {
         let mut a_trans: Vec<Vec<AssignedValue<F>>> = Vec::new();
 
-        for i in 0..a.num_col{
+        for i in 0..a.num_col {
             let mut new_row: Vec<AssignedValue<F>> = Vec::new();
-            for j in 0..a.num_rows{
+            for j in 0..a.num_rows {
                 new_row.push(a.matrix[j][i]);
             }
             a_trans.push(new_row);
         }
-        return Self { matrix: a_trans, num_rows: a.num_col, num_col: a.num_rows};
+        return Self { matrix: a_trans, num_rows: a.num_col, num_col: a.num_rows };
     }
-
-
 }
 
 /// Takes matrices `a` and `b` (viewed simply as field elements), calculates and outputs matrix product `c = a*b` outside of the zk circuit
@@ -496,7 +485,6 @@ pub fn field_mat_mul<F: BigPrimeField>(
     return c;
 }
 
-
 /// Takes matrices `a` and `b` (viewed simply as field elements), calculates matrix product `c_s = a*b` outside of the zk circuit, loads `c_s` into the context `ctx` and outputs the loaded matrix
 ///
 /// Assumes matrix `a` and `b` are well defined matrices (all rows have the same size) and asserts (outside of circuit) that they can be multiplied
@@ -527,7 +515,7 @@ pub fn honest_prover_mat_mul<F: BigPrimeField>(
     return assigned_c_s;
 }
 
-/// Multiplies matrix `a` to vector `v` in the zk-circuit and returns the constrained output `a.v` 
+/// Multiplies matrix `a` to vector `v` in the zk-circuit and returns the constrained output `a.v`
 /// -- all assuming `a` and `v` are field elements (and not fixed point encoded)
 /// Assumes matrix `a` is well defined (rows are equal size) and asserts (outside circuit) `a` can be multiplied to `v`
 ///
@@ -560,7 +548,7 @@ pub fn field_mat_vec_mul<F: BigPrimeField>(
     return y;
 }
 
-/// Multiplies matrix `a` by a diag matrix represented as a vector `v` in the zk-circuit and returns the constrained output `a*v` 
+/// Multiplies matrix `a` by a diag matrix represented as a vector `v` in the zk-circuit and returns the constrained output `a*v`
 /// -- all assuming `a` and `v` are field elements, (and not fixed point encoded)
 ///
 /// Assumes matrix `a` is well defined (rows are equal size) and asserts (outside circuit) `a` can be multiplied to `v`
@@ -575,9 +563,9 @@ pub fn field_mat_diagmat_mul<F: BigPrimeField>(
     assert_eq!(a[0].len(), v.len());
     let mut m: Vec<Vec<AssignedValue<F>>> = Vec::new();
     // #CONSTRAINTS = N^2
-    for i in 0..a.len(){
+    for i in 0..a.len() {
         let mut new_row: Vec<AssignedValue<F>> = Vec::new();
-        for j in 0..a[0].len(){
+        for j in 0..a[0].len() {
             let prod = gate.mul(ctx, a[i][j], v[j]);
             new_row.push(prod);
         }
@@ -586,15 +574,13 @@ pub fn field_mat_diagmat_mul<F: BigPrimeField>(
     return m;
 }
 
-
 ///  given matrices 'm', 'u', 'v' and a vector 'd' in floating point, checks the svd m = u*d*v where the vector 'd' is viewed as a diagonal matrix
 /// also takes as input a tolerance level tol given as a floating point number
 /// init_rand is an assigned value used as a the random challenge
 
-
-pub fn check_svd<F: BigPrimeField>(
+pub fn check_svd<F: BigPrimeField, const PRECISION_BITS: u32>(
     ctx: &mut Context<F>,
-    gate: &GateChip<F>,
+    fpchip: &FixedPointChip<F, PRECISION_BITS>,
     m: Vec<Vec<f64>>,
     u: Vec<Vec<f64>>,
     v: Vec<Vec<f64>>,
@@ -603,18 +589,13 @@ pub fn check_svd<F: BigPrimeField>(
     max_bits_d: u32,
     init_rand: AssignedValue<F>,
 ) {
-    let lookup_bits =
-    var("LOOKUP_BITS").unwrap_or_else(|_| panic!("LOOKUP_BITS not set")).parse().unwrap();
-    const PRECISION_BITS: u32 = 32;
-    // fixed-point exp arithmetic
-    let fpchip = FixedPointChip::<F, PRECISION_BITS>::default(lookup_bits);
+    let gate = fpchip.gate();
 
+    let mq: ZkMatrix<F, PRECISION_BITS> = ZkMatrix::new(ctx, &fpchip, &m);
+    let uq: ZkMatrix<F, PRECISION_BITS> = ZkMatrix::new(ctx, &fpchip, &u);
+    let vq: ZkMatrix<F, PRECISION_BITS> = ZkMatrix::new(ctx, &fpchip, &v);
 
-    let mq : ZkMatrix<F, PRECISION_BITS> = ZkMatrix::new(ctx, &fpchip, &m);
-    let uq : ZkMatrix<F, PRECISION_BITS> = ZkMatrix::new(ctx, &fpchip, &u);
-    let vq : ZkMatrix<F, PRECISION_BITS> = ZkMatrix::new(ctx, &fpchip, &v);
-
-    let dq : ZkVector<F, PRECISION_BITS> = ZkVector::new(ctx, &fpchip, &d);
+    let dq: ZkVector<F, PRECISION_BITS> = ZkVector::new(ctx, &fpchip, &d);
 
     // chek the entries of dq have at most max_bits_d + precision_bits
 
@@ -627,7 +608,6 @@ pub fn check_svd<F: BigPrimeField>(
     ZkMatrix::check_mat_entries_bounded(ctx, &fpchip, &uq.matrix, 1.01);
     ZkMatrix::check_mat_entries_bounded(ctx, &fpchip, &vq.matrix, 1.01);
 
-
     // Lets define the transpose matrix of and v
 
     let uq_t = ZkMatrix::transpose_matrix(ctx, &fpchip, &uq);
@@ -635,8 +615,7 @@ pub fn check_svd<F: BigPrimeField>(
 
     // define the scaled tolerance level
 
-    let tol_scale = tol*(2u64.pow(PRECISION_BITS) as f64);
-
+    let tol_scale = tol * (2u64.pow(PRECISION_BITS) as f64);
 
     let prod1: Vec<Vec<AssignedValue<F>>> = field_mat_diagmat_mul(ctx, gate, &uq.matrix, &dq.v);
 
@@ -644,11 +623,11 @@ pub fn check_svd<F: BigPrimeField>(
 
     ZkMatrix::verify_mul(ctx, &fpchip, &mq, &vq_t, &prod2, &init_rand);
 
-    ZkMatrix::check_mat_diff(ctx, &fpchip, &prod1, &prod2,tol_scale);
+    ZkMatrix::check_mat_diff(ctx, &fpchip, &prod1, &prod2, tol_scale);
 
     let quant = F::from((2u64.pow(PRECISION_BITS) as f64) as u64);
 
-    let quant_square = ctx.load_witness(quant*quant);
+    let quant_square = ctx.load_witness(quant * quant);
 
     let prod_u_ut = honest_prover_mat_mul(ctx, &uq.matrix, &uq_t.matrix);
     ZkMatrix::verify_mul(ctx, &fpchip, &uq, &uq_t, &prod_u_ut, &init_rand);
@@ -656,12 +635,8 @@ pub fn check_svd<F: BigPrimeField>(
 
     let prod_v_vt = honest_prover_mat_mul(ctx, &vq.matrix, &vq_t.matrix);
     ZkMatrix::verify_mul(ctx, &fpchip, &vq, &vq_t, &prod_v_vt, &init_rand);
-    ZkMatrix::check_mat_id(ctx, &fpchip, &prod_v_vt,quant_square, tol_scale);
+    ZkMatrix::check_mat_id(ctx, &fpchip, &prod_v_vt, quant_square, tol_scale);
 }
-
-
-
-
 
 /// simple tests to make sure zkvector is okay; can also be randomized
 fn test_zkvector<F: ScalarField>(
@@ -902,112 +877,11 @@ fn zk_random_verif_algo<F: ScalarField>(
     input: CircuitInput,
     make_public: &mut Vec<AssignedValue<F>>,
 ) {
-    // lookup bits must agree with the size of the lookup table, which is specified by an environmental variable
+    const PRECISION_BITS: u32 = 32;
     let lookup_bits =
         var("LOOKUP_BITS").unwrap_or_else(|_| panic!("LOOKUP_BITS not set")).parse().unwrap();
-    const PRECISION_BITS: u32 = 32;
-    // fixed-point arithmetic
     let fpchip = FixedPointChip::<F, PRECISION_BITS>::default(lookup_bits);
-    let gate = &fpchip.gate.gate;
-    const N: usize = 5;
-    const M: usize = 10;
-    const K: usize = 5;
-
-    let mut rng = rand::thread_rng();
-    let mut a: Vec<Vec<f64>> = Vec::new();
-    let mut b: Vec<Vec<f64>> = Vec::new();
-    // let mut prod: Vec<Vec<f64>> = Vec::new();
-
-    for i in 0..N {
-        let mut row: Vec<f64> = Vec::new();
-        for j in 0..K {
-            row.push(rng.gen_range(-1.0..1.0));
-        }
-        a.push(row);
-    }
-    let a = a;
-    for i in 0..K {
-        let mut row: Vec<f64> = Vec::new();
-        for j in 0..M {
-            row.push(rng.gen_range(-1.0..1.0));
-        }
-        b.push(row);
-    }
-    let b = b;
-
-    // for i in 0..N {
-    //     let mut row: Vec<f64> = Vec::new();
-    //     for j in 0..M {
-    //         let mut elem = 0.0;
-    //         for k in 0..K {
-    //             elem += a[i][k] * b[k][j];
-    //         }
-    //         row.push(elem);
-    //     }
-    //     prod.push(row);
-    // }
-    // let prod = prod;
-
-    // println!("a = ");
-    // print!("[");
-    // for i in 0..N {
-    //     print!("[");
-    //     for j in 0..K {
-    //         print!("{:.2}, ", a[i][j]);
-    //     }
-    //     print!("],\n");
-    // }
-    // print!("]\n");
-
-    // println!("b = ");
-    // print!("[");
-    // for i in 0..K {
-    //     print!("[");
-    //     for j in 0..M {
-    //         print!("{:.2}, ", b[i][j]);
-    //     }
-    //     print!("],\n");
-    // }
-    // print!("]\n");
-
-    // println!("prod = ");
-    // print!("[");
-    // for i in 0..N {
-    //     print!("[");
-    //     for j in 0..M {
-    //         print!("{:.2}, ", prod[i][j]);
-    //     }
-    //     print!("],\n");
-    // }
-    // print!("]\n");
-
-    // #CONSTRAINTS = these lead to 3*N^2 cells
-    let a = ZkMatrix::new(ctx, &fpchip, &a);
-    let b = ZkMatrix::new(ctx, &fpchip, &b);
-    // no constraints here:
-    let c_s = honest_prover_mat_mul(ctx, &a.matrix, &b.matrix);
-
-    // TODO: initial hashing
-    // manual hash of all matrix elements
-    // hashing requires ~1000 cells per element
-    // let init_rand = ZkMatrix::hash_matrix_list(ctx, gate, vec![&a, &b, &c]);
-    // dbg!(init_rand.value());
-
-    // #CONSTRAINTS = 3000= O(1)
-    // init_rand = hash(a[0][0])
-    const T: usize = 3;
-    const RATE: usize = 2;
-    const R_F: usize = 8;
-    const R_P: usize = 57;
-    let mut poseidon = PoseidonChip::<F, T, RATE>::new(ctx, R_F, R_P).unwrap();
-    let elem = a.matrix[0][0].clone();
-    poseidon.update(&[elem]);
-    let init_rand = poseidon.squeeze(ctx, gate).unwrap();
-
-    ZkMatrix::verify_mul(ctx, &fpchip, &a, &b, &c_s, &init_rand);
-    let c = ZkMatrix::rescale_matrix(ctx, &fpchip, &c_s);
-
-    // c.print(&fpchip);
+    let gate = fpchip.gate();
 
     // Import from the imput file the matrices of the svd, should satisfy m = u d v, the diagonal matrix is given as a vector
     let m = input.m;
@@ -1018,44 +892,48 @@ fn zk_random_verif_algo<F: ScalarField>(
 
     let tol = 1e-5;
 
-    check_svd(ctx, &gate, m, u, v, d, tol, 30, init_rand);
+    // init_rand = hash(0)
+    let zero = ctx.load_constant(F::zero());
+    const T: usize = 3;
+    const RATE: usize = 2;
+    const R_F: usize = 8;
+    const R_P: usize = 57;
+    let mut poseidon = PoseidonChip::<F, T, RATE>::new(ctx, R_F, R_P).unwrap();
+    poseidon.update(&[zero]);
+    let init_rand = poseidon.squeeze(ctx, gate).unwrap();
 
+    check_svd(ctx, &fpchip, m, u, v, d, tol, 30, init_rand);
+
+    println!("Success");
     /* let uq = ZkMatrix::new(ctx, &fpchip, &u);
-   
-    println!("new test below");
 
-    ZkMatrix::print(&uq , &fpchip);
+       println!("new test below");
 
-    let uq_t = ZkMatrix::transpose_matrix(ctx, &fpchip, &uq);
+       ZkMatrix::print(&uq , &fpchip);
 
-    ZkMatrix::print(&uq_t, &fpchip);
+       let uq_t = ZkMatrix::transpose_matrix(ctx, &fpchip, &uq);
 
-    let prod_u_ut = honest_prover_mat_mul(ctx, &uq.matrix, &uq_t.matrix);
+       ZkMatrix::print(&uq_t, &fpchip);
 
-    for i in 0..prod_u_ut.len() {
-        for j in 0..prod_u_ut[0].len() {
-            let elem = prod_u_ut[i][j];
-            print!("{:?}, ", elem.value());
-        }
-        print!("\n");
-    }
-    println!("]");
+       let prod_u_ut = honest_prover_mat_mul(ctx, &uq.matrix, &uq_t.matrix);
 
-    let quant = F::from((2u64.pow(PRECISION_BITS) as f64) as u64);
+       for i in 0..prod_u_ut.len() {
+           for j in 0..prod_u_ut[0].len() {
+               let elem = prod_u_ut[i][j];
+               print!("{:?}, ", elem.value());
+           }
+           print!("\n");
+       }
+       println!("]");
 
-    let quant2 = quant*quant;
+       let quant = F::from((2u64.pow(PRECISION_BITS) as f64) as u64);
 
-    println!("{:?}", quant2);
- */
+       let quant2 = quant*quant;
 
+       println!("{:?}", quant2);
+    */
 
-
-
-
-
-
-
-     /* for i in 0..mq.num_rows {
+    /* for i in 0..mq.num_rows {
         for j in 0..mq.num_col {
             let elem = mq.matrix[i][j];
             print!("{:?}, ", elem.value());
@@ -1074,69 +952,6 @@ fn zk_random_verif_algo<F: ScalarField>(
     println!("]"); */
 
     // v) lastly we need to check that the matrices uq and vq are orthogonal, we define the matrix transpose of uq and vq
-
-  
-
-
-    // ORIGINAL MULTIPICATION
-    // at git commit - a07444642cd61c4bd9732bb96f9762a3aa645fa1
-    // Multiplication cost 250 per mul
-    // Total cost = 26000*dim^2 with 30 hashes
-    // 3000 would just be from init_hash
-    // Hashing [NUM_RNDS] times = 2000 per hash- only 30*2000 overall- small
-    // 250 for a single vector multiplication per element
-    // This 250 cost is coming from the rescaling required in qmul (signed_div_scale)
-
-    // NEW MULTIPICATION
-    // at git commit - 367bee6a27a606e006fdfac60927d22fed996399
-    // costs 94 per mul- will also depend on lookup table
-
-    // With efficient {-1, 1} vector multiplication
-    // at git commit - 61a961ab927a078cd4161d7153edd0a6298b3087
-    // cells for
-    // N=M=K=20 are 1571094
-    // N=M=K=50 are 8600994
-    // N=M=K=100 are 33529494
-    // Number of cells grows as 3440*N^2 = 1150*3N^2
-    // 94*30 = 2820
-
-    // With amortized rescaling
-    // at git commit - f6c0bc6d145af60e2da3fcc1b1e76a6f00daebe4
-    // cells for
-    // N=M=K=20 are 539784
-    // N=M=K=50 are 2148984
-    // N=M=K=100 are 7722984
-    // Number of cells grows as N^2 + 94*N
-    // 723*N^2 + 3030*N + 189984
-    // (mul cost)*(num iter) = 94*30 = 2820 --> this contributes to the coeff of N
-    // (hashing cost)*(num iter) = 3000*30 --> contributes to the constant factor
-    // 723/30 = 24
-
-    // Minor improvement to inner_product
-    // at git commit - 994f4ac4d870d97aedf7ea7fa8095914028d33ed
-    // cells for
-    // N=M=K=20 are 489384
-    // N=M=K=50 are 1842984
-    // N=M=K=100 are 6510984
-    // At this point if you count visible constraints, they are = 5K*N^2 +106*K*N + 3000*K
-    // - this very nicely accounts for all the N order constraint growth
-    // - smaller than observed for N^2 coeff by a factor of ~4.3
-    // -- because of copying stuff??
-    // -- because 4 cells per gate??
-
-    // Another minor improvement to inner_product- to use optimised gate.inner_product
-    // cells for
-    // N=M=K=50 are 1766484
-    // N=M=K=100 are 6207984
-
-    // Using field multiplication check algo
-    // completely changed the verification algorithm
-    // at git commit - c326179c0a85a6a26ea938062861f22efcd53d28
-    // cells for:
-    // N=M=K=50 are 248203
-    // N=M=K=100 are 984153 - with lookup 15 improves to 864153
-    // N=M=K=500 are 24511753
-    // seems to grow 98*N^2
 }
 
 fn main() {
@@ -1155,4 +970,4 @@ fn main() {
 
 // to run:
 // export LOOKUP_BITS=12
-// cargo run --example matrix -- --name divide_by_32 -k 20 mock
+// cargo run --example matrix -- --name matrix -k 20 mock
