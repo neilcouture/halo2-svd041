@@ -45,27 +45,27 @@ fn rlc_test_circuit<F: ScalarField>(
     let inputs = ctx.assign_witnesses(_inputs.clone());
     let len = ctx.load_witness(F::from(_len as u64));
 
+    // let range: RangeChip<F> = RangeChip::default(5);
+    // let zero = ctx.load_constant(F::zero());
+    // let one = ctx.load_constant(F::one());
+    // range.check_less_than(ctx, zero, one, 5);
+
     let synthesize_phase1 = move |builder: &mut RlcThreadBuilder<F>, rlc: &RlcChip<F>| {
         // the closure captures the `inputs` variable
         println!("phase 1 synthesize begin*");
-        // let gate = GateChip::default();
-        let range: RangeChip<F> = RangeChip::default(5);
+        let gate = GateChip::default();
 
         let (ctx_gate, ctx_rlc) = builder.rlc_ctx_pair();
         // println!("Rand val = {:?}", rlc.gamma());
 
         // let init_rand = load_gamma(ctx_rlc, *rlc.gamma());
-        rlc.load_rlc_cache((ctx_gate, ctx_rlc), range.gate(), 1);
+        rlc.load_rlc_cache((ctx_gate, ctx_rlc), &gate, 1);
         let init_rand = rlc.gamma_pow_cached()[0];
         println!("The init rand = {:?}", init_rand.value());
         println!("rlc.gamma = {:?}", *rlc.gamma());
 
         let rand_plus1 = gate.add(ctx_gate, init_rand, Constant(F::one()));
         println!("The rand_plus1 = {:?}", rand_plus1.value());
-
-        let zero = ctx_gate.load_constant(F::zero());
-        let one = ctx_gate.load_constant(F::one());
-        range.check_less_than(ctx_gate, zero, one, 5);
 
         let rlc_trace = rlc.compute_rlc((ctx_gate, ctx_rlc), &gate, inputs, len);
         let rlc_val = *rlc_trace.rlc_val.value();
