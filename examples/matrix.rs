@@ -179,6 +179,27 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkVector<F, PRECISION_BITS> {
         }
         return Self { v: y };
     }
+
+    // constraints all the entries of the vector to be in between -2^max_bits and 2^max_bits
+
+    pub fn entries_less_than(
+        &self,
+        max_bits: u32,
+        ctx: &mut Context<F>,
+        fpchip: &FixedPointChip<F, PRECISION_BITS>,
+    ) {
+        
+        let bound = 2u64.pow(max_bits);
+        let bound_field = ctx.load_witness(F::from(bound));
+
+        for i in 0..self.v.len(){
+            let ele_add = fpchip.qadd(ctx, self.v[i], bound_field);
+            fpchip.gate.check_less_than_safe(ctx, ele_add, 2*bound);
+        }
+        
+    }
+
+
 }
 
 pub struct ZkMatrix<F: BigPrimeField, const PRECISION_BITS: u32> {
@@ -395,6 +416,30 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
         }
     }
 
+    // Given a matrix 'a' in the fixed point representation, checks that all of its entries are less in absolute value than a tolerance tol
+
+    pub fn check_mat_entries_bounded(
+        ctx: &mut Context<F>,
+        fpchip: &FixedPointChip<F, PRECISION_BITS>,
+        a: &Vec<Vec<AssignedValue<F>>>,
+        tol: f64,
+    ){
+        let quant_tol = (tol * (2u64.pow(PRECISION_BITS) as f64)) as u64;
+
+        let quant_tol_field = ctx.load_witness(F::from(quant_tol));
+
+        for i in 0..a.len(){
+            for j in 0..a[0].len(){
+                    let ele_add = fpchip.qadd(ctx, a[i][j], quant_tol_field);
+                    fpchip.gate.check_less_than_safe(ctx, ele_add, 2*quant_tol);
+                }
+            }
+        }
+    
+
+
+
+
     // function that outputs the transpose matrix of a matrix 'a'
 
     pub fn transpose_matrix(
@@ -546,6 +591,7 @@ pub fn field_mat_diagmat_mul<F: BigPrimeField>(
 /// also takes as input a tolerance level tol given as a floating point number
 /// init_rand is an assigned value used as a the random challenge
 
+
 pub fn check_svd<F: BigPrimeField>(
     ctx: &mut Context<F>,
     gate: &GateChip<F>,
@@ -554,6 +600,7 @@ pub fn check_svd<F: BigPrimeField>(
     v: Vec<Vec<f64>>,
     d: Vec<f64>,
     tol: f64,
+    max_bits_d: u32,
     init_rand: AssignedValue<F>,
 ) {
     let lookup_bits =
@@ -568,6 +615,18 @@ pub fn check_svd<F: BigPrimeField>(
     let vq : ZkMatrix<F, PRECISION_BITS> = ZkMatrix::new(ctx, &fpchip, &v);
 
     let dq : ZkVector<F, PRECISION_BITS> = ZkVector::new(ctx, &fpchip, &d);
+
+    // chek the entries of dq have at most max_bits_d + precision_bits
+
+    let max_bits = max_bits_d + PRECISION_BITS;
+
+    ZkVector::entries_less_than(&dq, max_bits, ctx, &fpchip);
+
+    // check that the entries of uq, vq correspond to real numbers in the interval (-1.01,1.01)
+
+    ZkMatrix::check_mat_entries_bounded(ctx, &fpchip, &uq.matrix, 1.01);
+    ZkMatrix::check_mat_entries_bounded(ctx, &fpchip, &vq.matrix, 1.01);
+
 
     // Lets define the transpose matrix of and v
 
@@ -957,9 +1016,9 @@ fn zk_random_verif_algo<F: ScalarField>(
 
     let d = input.d;
 
-    let tol = 1e-3;
+    let tol = 1e-5;
 
-    check_svd(ctx, &gate, m, u, v, d, tol, init_rand);
+    check_svd(ctx, &gate, m, u, v, d, tol, 30, init_rand);
 
     /* let uq = ZkMatrix::new(ctx, &fpchip, &u);
    
@@ -1081,7 +1140,7 @@ fn zk_random_verif_algo<F: ScalarField>(
 }
 
 fn main() {
-    set_var("LOOKUP_BITS", 12.to_string());
+    set_var("LOOKUP_BITS", 19.to_string());
 
     env_logger::init();
 
