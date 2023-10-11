@@ -1097,3 +1097,5 @@ fn main() {
 // to run:
 // export LOOKUP_BITS=12
 // cargo run --example matrix -- --name divide_by_32 -k 20 mock
+
+// let chip = EthChip::new(RlpChip::new(&range, None), None);
