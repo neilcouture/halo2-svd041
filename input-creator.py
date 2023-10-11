@@ -4,6 +4,7 @@ import itertools
 import math
 import numpy as np
 import json
+import sys
 
 def ran_mat(n):
     mat = []
@@ -16,18 +17,24 @@ def ran_mat(n):
         mat = mat + [line]
     return mat
 
-N=10
-mat_ran = ran_mat(N)
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        print("Usage: python3 input-creator N")
+    else:
+        N = int(sys.argv[1])
+        mat_ran = ran_mat(N)
 
-U, D, V = lin.svd(mat_ran)
-U = U.tolist()
-V = V.tolist()
-D = D.tolist()
+        U, D, V = lin.svd(mat_ran)
+        U = U.tolist()
+        V = V.tolist()
+        D = D.tolist()
 
-dict_svd = {"m": mat_ran, "u": U, "d": D, "v": V}
+        dict_svd = {"m": mat_ran, "u": U, "d": D, "v": V}
 
-json_file_path = "./data/matrix.in"
+        json_file_path = "./data/matrix.in"
 
-with open(json_file_path, 'w') as json_file:
-    # Write the dictionary to the JSON file
-    json.dump(dict_svd, json_file)
+        with open(json_file_path, 'w') as json_file:
+            # Write the dictionary to the JSON file
+            json.dump(dict_svd, json_file, indent=4)
+
+        print(f"Python: Successfully created inputs for N = {N}!")

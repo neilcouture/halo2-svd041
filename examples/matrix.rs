@@ -15,6 +15,7 @@ use poseidon::PoseidonChip;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::env::{set_var, var};
+use std::fs;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CircuitInput {
@@ -955,14 +956,12 @@ fn zk_random_verif_algo<F: ScalarField>(
 }
 
 fn main() {
+    let data = fs::read_to_string("./data/matrix.in").expect("Unable to read file");
+    let input: CircuitInput = serde_json::from_str(&data).expect("JSON was not well-formatted");
     set_var("LOOKUP_BITS", 19.to_string());
 
-    env_logger::init();
-
-    let args = Cli::parse();
-
-    // run different zk commands based on the command line arguments
-    run(zk_random_verif_algo, args);
+    // // run different zk commands based on the command line arguments
+    // run(zk_random_verif_algo, args);
 }
 
 // TODO:
