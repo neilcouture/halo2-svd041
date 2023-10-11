@@ -3,11 +3,27 @@
 use clap::Parser;
 use halo2_base::gates::{GateChip, GateInstructions, RangeChip, RangeInstructions};
 use halo2_base::utils::{BigPrimeField, ScalarField};
-use halo2_base::{AssignedValue, QuantumCell};
 use halo2_base::{
+    halo2_proofs::{
+        dev::MockProver,
+        halo2curves::bn256::{Bn256, Fr, G1Affine},
+        plonk::{create_proof, keygen_pk, keygen_vk, verify_proof, Error},
+        poly::{
+            commitment::ParamsProver,
+            kzg::{
+                commitment::{KZGCommitmentScheme, ParamsKZG},
+                multiopen::{ProverSHPLONK, VerifierSHPLONK},
+                strategy::SingleStrategy,
+            },
+        },
+        transcript::{
+            Blake2bRead, Blake2bWrite, Challenge255, TranscriptReadBuffer, TranscriptWriterBuffer,
+        },
+    },
     Context,
     QuantumCell::{Constant, Existing, Witness},
 };
+use halo2_base::{AssignedValue, QuantumCell};
 use halo2_scaffold::gadget::fixed_point::{FixedPointChip, FixedPointInstructions};
 use halo2_scaffold::scaffold::cmd::Cli;
 use halo2_scaffold::scaffold::run;
@@ -16,6 +32,13 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::env::{set_var, var};
 use std::fs;
+
+use axiom_eth::rlp::{
+    builder::{FnSynthesize, RlcThreadBuilder, RlpCircuitBuilder},
+    rlc::RlcChip,
+    *,
+};
+use rand::{rngs::StdRng, SeedableRng};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CircuitInput {
@@ -637,6 +660,8 @@ pub fn check_svd<F: BigPrimeField, const PRECISION_BITS: u32>(
     let prod_v_vt = honest_prover_mat_mul(ctx, &vq.matrix, &vq_t.matrix);
     ZkMatrix::verify_mul(ctx, &fpchip, &vq, &vq_t, &prod_v_vt, &init_rand);
     ZkMatrix::check_mat_id(ctx, &fpchip, &prod_v_vt, quant_square, tol_scale);
+
+    println!("Success from check_svd");
 }
 
 /// simple tests to make sure zkvector is okay; can also be randomized
@@ -874,15 +899,21 @@ fn test_field_mat_times_vec<F: ScalarField>(
 }
 
 fn zk_random_verif_algo<F: ScalarField>(
-    ctx: &mut Context<F>,
+    mut builder: RlcThreadBuilder<F>,
     input: CircuitInput,
-    make_public: &mut Vec<AssignedValue<F>>,
-) {
+) -> RlpCircuitBuilder<F, impl FnSynthesize<F>> {
+    let prover = builder.witness_gen_only();
+    let ctx = builder.gate_builder.main(0);
+
     const PRECISION_BITS: u32 = 32;
-    let lookup_bits =
+    let degree: usize = var("DEGREE").unwrap_or_else(|_| panic!("DEGREE not set")).parse().unwrap();
+    let lookup_bits: usize =
         var("LOOKUP_BITS").unwrap_or_else(|_| panic!("LOOKUP_BITS not set")).parse().unwrap();
+
+    assert!(degree > lookup_bits, "DEGREE should be more than LOOKUP_BITS");
     let fpchip = FixedPointChip::<F, PRECISION_BITS>::default(lookup_bits);
     let gate = fpchip.gate();
+    let range = fpchip.range_gate();
 
     // Import from the imput file the matrices of the svd, should satisfy m = u d v, the diagonal matrix is given as a vector
     let m = input.m;
@@ -901,11 +932,39 @@ fn zk_random_verif_algo<F: ScalarField>(
     const R_P: usize = 57;
     let mut poseidon = PoseidonChip::<F, T, RATE>::new(ctx, R_F, R_P).unwrap();
     poseidon.update(&[zero]);
-    let init_rand = poseidon.squeeze(ctx, gate).unwrap();
+    let _ = poseidon.squeeze(ctx, gate).unwrap();
 
-    check_svd(ctx, &fpchip, m, u, v, d, tol, 30, init_rand);
+    let chip = RlpChip::new(&range, None);
+    // let witness = chip.decompose_rlp_field_phase0(ctx, inputs, max_len);
 
-    println!("Success");
+    let synthesize_phase1 = move |b: &mut RlcThreadBuilder<F>, rlc: &RlcChip<F>| {
+        // old fpchip being moved
+        let fpchip2 = fpchip;
+        let range = fpchip2.range_gate();
+        let chip = RlpChip::new(&range, Some(rlc));
+
+        // closure captures `witness` variable
+        println!("phase 1 synthesize begin");
+        let (ctx_gate, ctx_rlc) = b.rlc_ctx_pair();
+
+        rlc.load_rlc_cache((ctx_gate, ctx_rlc), &chip.range().gate, 1);
+        let init_rand = rlc.gamma_pow_cached()[0];
+        println!("The init rand = {:?}", init_rand.value());
+
+        let zero = ctx_gate.load_constant(F::zero());
+        let one = ctx_gate.load_constant(F::one());
+        chip.range().check_less_than(ctx_gate, zero, one, 5);
+
+        check_svd(ctx_gate, &fpchip2, m, u, v, d, tol, 30, init_rand);
+    };
+    let circuit = RlpCircuitBuilder::new(builder, None, synthesize_phase1);
+    // auto-configure circuit if not in prover mode for convenience
+    if !prover {
+        circuit.config(degree as usize, Some(6));
+    }
+    return circuit;
+
+    // println!("Success");
     /* let uq = ZkMatrix::new(ctx, &fpchip, &u);
 
        println!("new test below");
@@ -958,10 +1017,14 @@ fn zk_random_verif_algo<F: ScalarField>(
 fn main() {
     let data = fs::read_to_string("./data/matrix.in").expect("Unable to read file");
     let input: CircuitInput = serde_json::from_str(&data).expect("JSON was not well-formatted");
+    set_var("DEGREE", 20.to_string());
     set_var("LOOKUP_BITS", 19.to_string());
-
+    let k: u32 = var("DEGREE").unwrap_or_else(|_| panic!("DEGREE not set")).parse().unwrap();
     // // run different zk commands based on the command line arguments
     // run(zk_random_verif_algo, args);
+
+    let circuit = zk_random_verif_algo(RlcThreadBuilder::<Fr>::mock(), input);
+    MockProver::run(k, &circuit, vec![]).unwrap().assert_satisfied();
 }
 
 // TODO:
