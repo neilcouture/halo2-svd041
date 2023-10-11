@@ -296,7 +296,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
 
         for i in 1..d {
             let prev = &v[i - 1];
-            let r_to_i = fpchip.gate().mul(ctx, *prev, *init_rand);
+            let r_to_i = gate.mul(ctx, *prev, *init_rand);
             v.push(r_to_i);
         }
         let v = v;
@@ -894,8 +894,8 @@ fn load_gamma<F: ScalarField>(ctx_rlc: &mut Context<F>, gamma: F) -> AssignedVal
 
 fn rlc_based_random_verif<F: ScalarField>(
     mut builder: RlcThreadBuilder<F>,
-    a: &Vec<Vec<f64>>,
-    b: &Vec<Vec<f64>>,
+    a: Vec<Vec<f64>>,
+    b: Vec<Vec<f64>>,
     // ctx: &mut Context<F>,
     // input: CircuitInput,
     // make_public: &mut Vec<AssignedValue<F>>,
@@ -969,22 +969,27 @@ fn rlc_based_random_verif<F: ScalarField>(
     let synthesize_phase1 = move |builder: &mut RlcThreadBuilder<F>, rlc: &RlcChip<F>| {
         // the closure captures the `inputs` variable
         println!("phase 1 synthesize begin");
-        let fpchip2 = FixedPointChip::<F, PRECISION_BITS>::default(lookup_bits);
-        // let gate2 = &fpchip2.gate.gate;
-
         let (ctx_gate, ctx_rlc) = builder.rlc_ctx_pair();
+
+        let fpchip2 = FixedPointChip::<F, PRECISION_BITS>::default(lookup_bits);
+        let gate2 = &fpchip2.gate.gate;
 
         // **which ctx???
         // TODO: this is unconstrained
         // use rlc.load_gamma?
 
-        let init_rand = load_gamma(ctx_rlc, *rlc.gamma());
+        // let init_rand = load_gamma(ctx_rlc, *rlc.gamma());
         // let init_rand = ctx_gate.load_witness(*rlc.gamma());
+        rlc.load_rlc_cache((ctx_gate, ctx_rlc), gate2, 1);
+        let init_rand = rlc.gamma_pow_cached()[0];
 
         println!("Rand val = {:?}", init_rand.value());
 
+        let rand_plus1 = gate2.add(ctx_gate, init_rand, Constant(F::one()));
+        println!("The rand_plus1 = {:?}", rand_plus1.value());
+
         ZkMatrix::verify_mul(ctx_gate, &fpchip2, &a, &b, &c_s, &init_rand);
-        let c = ZkMatrix::rescale_matrix(ctx_gate, &fpchip2, &c_s);
+        // let c = ZkMatrix::rescale_matrix(ctx_gate, &fpchip2, &c_s);
         // println!("The matrix c is = ");
         // c.print(&fpchip2);
     };
@@ -992,9 +997,13 @@ fn rlc_based_random_verif<F: ScalarField>(
     RlcCircuitBuilder::new(builder, None, synthesize_phase1)
 }
 
+fn deep_clone<T: Clone>(vec: &Vec<Vec<T>>) -> Vec<Vec<T>> {
+    vec.iter().map(|inner_vec| inner_vec.clone()).collect()
+}
+
 fn main() {
     const DEG: u32 = 16;
-    const MOCK: bool = true;
+    const MOCK: bool = false;
 
     set_var("LOOKUP_BITS", 12.to_string());
 
@@ -1017,6 +1026,7 @@ fn main() {
         a.push(row);
     }
     let a = a;
+
     for i in 0..K {
         let mut row: Vec<f64> = Vec::new();
         for j in 0..M {
@@ -1028,7 +1038,7 @@ fn main() {
 
     if MOCK {
         // Mock prover
-        let circuit = rlc_based_random_verif(RlcThreadBuilder::<Fr>::mock(), &a, &b);
+        let circuit = rlc_based_random_verif(RlcThreadBuilder::<Fr>::mock(), a, b);
 
         circuit.config(DEG as usize, Some(6));
 
@@ -1038,7 +1048,8 @@ fn main() {
 
         let mut rng = StdRng::from_seed([0u8; 32]);
         let params = ParamsKZG::<Bn256>::setup(DEG, &mut rng);
-        let circuit = rlc_based_random_verif(RlcThreadBuilder::keygen(), &a, &b);
+        let circuit =
+            rlc_based_random_verif(RlcThreadBuilder::keygen(), deep_clone(&a), deep_clone(&b));
         circuit.config(DEG as usize, Some(6));
 
         println!("vk gen started");
@@ -1050,7 +1061,7 @@ fn main() {
         println!("==============STARTING PROOF GEN===================");
         let break_points = circuit.break_points.take();
         drop(circuit);
-        let circuit = rlc_based_random_verif(RlcThreadBuilder::prover(), &a, &b);
+        let circuit = rlc_based_random_verif(RlcThreadBuilder::prover(), a, b);
         *circuit.break_points.borrow_mut() = break_points;
 
         let mut transcript = Blake2bWrite::<_, _, Challenge255<_>>::init(vec![]);
