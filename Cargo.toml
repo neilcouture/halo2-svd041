@@ -17,6 +17,7 @@ clap-num = "1.0.2"
 num-bigint = "0.4"
 num-integer = "0.1"
 itertools = "0.10.5"
+hex = "0.4.3"
 
 # halo2
 halo2_proofs = { git = "https://github.com/privacy-scaling-explorations/halo2.git", tag = "v2023_02_02" }
