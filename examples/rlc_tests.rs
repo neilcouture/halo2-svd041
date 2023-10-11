@@ -1,7 +1,7 @@
 use halo2_base::{
     gates::{
         builder::{GateCircuitBuilder, GateThreadBuilder},
-        GateChip,
+        GateChip, RangeChip, RangeInstructions,
     },
     halo2_proofs::{
         dev::MockProver,
@@ -19,7 +19,10 @@ use halo2_base::{
             Blake2bRead, Blake2bWrite, Challenge255, TranscriptReadBuffer, TranscriptWriterBuffer,
         },
     },
+    safe_types::GateInstructions,
     utils::{bit_length, ScalarField},
+    AssignedValue, Context,
+    QuantumCell::{Constant, Existing, Witness},
 };
 use itertools::Itertools;
 use rand::{rngs::StdRng, SeedableRng};
@@ -46,9 +49,24 @@ fn rlc_test_circuit<F: ScalarField>(
         // the closure captures the `inputs` variable
         println!("phase 1 synthesize begin*");
         let gate = GateChip::default();
+        let range: RangeChip<F> = RangeChip::default(5);
 
         let (ctx_gate, ctx_rlc) = builder.rlc_ctx_pair();
-        println!("Rand val = {:?}", rlc.gamma());
+        // println!("Rand val = {:?}", rlc.gamma());
+
+        // let init_rand = load_gamma(ctx_rlc, *rlc.gamma());
+        rlc.load_rlc_cache((ctx_gate, ctx_rlc), &gate, 1);
+        let init_rand = rlc.gamma_pow_cached()[0];
+        println!("The init rand = {:?}", init_rand.value());
+        println!("rlc.gamma = {:?}", *rlc.gamma());
+
+        let rand_plus1 = gate.add(ctx_gate, init_rand, Constant(F::one()));
+        println!("The rand_plus1 = {:?}", rand_plus1.value());
+
+        let zero = ctx_gate.load_constant(F::zero());
+        let one = ctx_gate.load_constant(F::one());
+        range.check_less_than(ctx_gate, zero, one, 5);
+
         let rlc_trace = rlc.compute_rlc((ctx_gate, ctx_rlc), &gate, inputs, len);
         let rlc_val = *rlc_trace.rlc_val.value();
         let real_rlc = compute_rlc_acc(&_inputs[.._len], *rlc.gamma());
@@ -299,8 +317,19 @@ pub fn test_rlc() -> Result<(), Error> {
     Ok(())
 }
 
+/// Returns challenge value as a AssignedValue
+///
+/// `ctx_rlc` should be the RLC context
+///
+/// gamma should be the challenge value as a field element
+///
+/// Copied from the corresponding private function of RlcChip
+fn load_gamma<F: ScalarField>(ctx_rlc: &mut Context<F>, gamma: F) -> AssignedValue<F> {
+    ctx_rlc.assign_region_last([Constant(F::one()), Constant(F::zero()), Witness(gamma)], [0])
+}
+
 fn main() {
-    set_var("LOOKUP_BITS", 12.to_string());
+    set_var("LOOKUP_BITS", 5.to_string());
 
     env_logger::init();
 
