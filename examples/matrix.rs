@@ -49,6 +49,7 @@ pub struct CircuitInput {
     // field element, but easier to deserialize as a string
 }
 
+#[derive(Clone)]
 /// ZKVector is always associated to a fixed point chip for which we need [PRECISION_BITS]
 pub struct ZkVector<F: BigPrimeField, const PRECISION_BITS: u32> {
     v: Vec<AssignedValue<F>>,
@@ -222,6 +223,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkVector<F, PRECISION_BITS> {
     }
 }
 
+#[derive(Clone)]
 pub struct ZkMatrix<F: BigPrimeField, const PRECISION_BITS: u32> {
     matrix: Vec<Vec<AssignedValue<F>>>,
     num_rows: usize,
@@ -269,12 +271,13 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
     pub fn print(&self, fpchip: &FixedPointChip<F, PRECISION_BITS>) {
         print!("[\n");
         for i in 0..self.num_rows {
+            print!("[\n");
             for j in 0..self.num_col {
                 let elem = self.matrix[i][j];
                 let elem = fpchip.dequantization(*elem.value());
                 print!("{:?}, ", elem);
             }
-            print!("\n");
+            print!("], \n");
         }
         println!("]");
     }
@@ -468,7 +471,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
         for i in 0..a.num_col {
             let mut new_row: Vec<AssignedValue<F>> = Vec::new();
             for j in 0..a.num_rows {
-                new_row.push(a.matrix[j][i]);
+                new_row.push(a.matrix[j][i].clone());
             }
             a_trans.push(new_row);
         }
@@ -598,70 +601,61 @@ pub fn field_mat_diagmat_mul<F: BigPrimeField>(
     return m;
 }
 
-///  given matrices 'm', 'u', 'v' and a vector 'd' in floating point, checks the svd m = u*d*v where the vector 'd' is viewed as a diagonal matrix
+/// given matrices 'm', 'u', 'v' and a vector 'd' in floating point, checks the svd m = u*d*v where the vector 'd' is viewed as a diagonal matrix
 /// also takes as input a tolerance level tol given as a floating point number
 /// init_rand is an assigned value used as a the random challenge
 
 pub fn check_svd<F: BigPrimeField, const PRECISION_BITS: u32>(
     ctx: &mut Context<F>,
     fpchip: &FixedPointChip<F, PRECISION_BITS>,
-    m: Vec<Vec<f64>>,
-    u: Vec<Vec<f64>>,
-    v: Vec<Vec<f64>>,
-    d: Vec<f64>,
+    m: ZkMatrix<F, PRECISION_BITS>,
+    u: ZkMatrix<F, PRECISION_BITS>,
+    v: ZkMatrix<F, PRECISION_BITS>,
+    d: ZkVector<F, PRECISION_BITS>,
     tol: f64,
     max_bits_d: u32,
     init_rand: AssignedValue<F>,
 ) {
     let gate = fpchip.gate();
 
-    let mq: ZkMatrix<F, PRECISION_BITS> = ZkMatrix::new(ctx, &fpchip, &m);
-    let uq: ZkMatrix<F, PRECISION_BITS> = ZkMatrix::new(ctx, &fpchip, &u);
-    let vq: ZkMatrix<F, PRECISION_BITS> = ZkMatrix::new(ctx, &fpchip, &v);
+    // let mq: ZkMatrix<F, PRECISION_BITS> = ZkMatrix::new(ctx, &fpchip, &m);
+    // let uq: ZkMatrix<F, PRECISION_BITS> = ZkMatrix::new(ctx, &fpchip, &u);
+    // let vq: ZkMatrix<F, PRECISION_BITS> = ZkMatrix::new(ctx, &fpchip, &v);
 
-    let dq: ZkVector<F, PRECISION_BITS> = ZkVector::new(ctx, &fpchip, &d);
+    // let dq: ZkVector<F, PRECISION_BITS> = ZkVector::new(ctx, &fpchip, &d);
 
-    // chek the entries of dq have at most max_bits_d + precision_bits
-
+    // check the entries of dq have at most max_bits_d + precision_bits
     let max_bits = max_bits_d + PRECISION_BITS;
-
-    ZkVector::entries_less_than(&dq, max_bits, ctx, &fpchip);
+    ZkVector::entries_less_than(&d, max_bits, ctx, &fpchip);
 
     // check that the entries of uq, vq correspond to real numbers in the interval (-1.01,1.01)
-
-    ZkMatrix::check_mat_entries_bounded(ctx, &fpchip, &uq.matrix, 1.01);
-    ZkMatrix::check_mat_entries_bounded(ctx, &fpchip, &vq.matrix, 1.01);
+    ZkMatrix::check_mat_entries_bounded(ctx, &fpchip, &u.matrix, 1.01);
+    ZkMatrix::check_mat_entries_bounded(ctx, &fpchip, &v.matrix, 1.01);
 
     // Lets define the transpose matrix of and v
-
-    let uq_t = ZkMatrix::transpose_matrix(ctx, &fpchip, &uq);
-    let vq_t = ZkMatrix::transpose_matrix(ctx, &fpchip, &vq);
+    let u_t = ZkMatrix::transpose_matrix(ctx, &fpchip, &u);
+    let v_t = ZkMatrix::transpose_matrix(ctx, &fpchip, &v);
 
     // define the scaled tolerance level
-
     let tol_scale = tol * (2u64.pow(PRECISION_BITS) as f64);
 
-    let prod1: Vec<Vec<AssignedValue<F>>> = field_mat_diagmat_mul(ctx, gate, &uq.matrix, &dq.v);
-
-    let prod2 = honest_prover_mat_mul(ctx, &mq.matrix, &vq_t.matrix);
-
-    ZkMatrix::verify_mul(ctx, &fpchip, &mq, &vq_t, &prod2, &init_rand);
+    let prod1: Vec<Vec<AssignedValue<F>>> = field_mat_diagmat_mul(ctx, gate, &u.matrix, &d.v);
+    let prod2: Vec<Vec<AssignedValue<F>>> = honest_prover_mat_mul(ctx, &m.matrix, &v_t.matrix);
 
     ZkMatrix::check_mat_diff(ctx, &fpchip, &prod1, &prod2, tol_scale);
 
-    let quant = F::from((2u64.pow(PRECISION_BITS) as f64) as u64);
+    let quant = F::from(2u64.pow(PRECISION_BITS));
+    let quant_square = ctx.load_constant(quant * quant);
 
-    let quant_square = ctx.load_witness(quant * quant);
-
-    let prod_u_ut = honest_prover_mat_mul(ctx, &uq.matrix, &uq_t.matrix);
-    ZkMatrix::verify_mul(ctx, &fpchip, &uq, &uq_t, &prod_u_ut, &init_rand);
+    let prod_u_ut = honest_prover_mat_mul(ctx, &u.matrix, &u_t.matrix);
     ZkMatrix::check_mat_id(ctx, &fpchip, &prod_u_ut, quant_square, tol_scale);
 
-    let prod_v_vt = honest_prover_mat_mul(ctx, &vq.matrix, &vq_t.matrix);
-    ZkMatrix::verify_mul(ctx, &fpchip, &vq, &vq_t, &prod_v_vt, &init_rand);
+    let prod_v_vt = honest_prover_mat_mul(ctx, &v.matrix, &v_t.matrix);
     ZkMatrix::check_mat_id(ctx, &fpchip, &prod_v_vt, quant_square, tol_scale);
 
-    println!("Success from check_svd");
+    ZkMatrix::verify_mul(ctx, &fpchip, &m, &v_t, &prod2, &init_rand);
+    ZkMatrix::verify_mul(ctx, &fpchip, &u, &u_t, &prod_u_ut, &init_rand);
+    ZkMatrix::verify_mul(ctx, &fpchip, &v, &v_t, &prod_v_vt, &init_rand);
 }
 
 /// simple tests to make sure zkvector is okay; can also be randomized
@@ -919,20 +913,15 @@ fn zk_random_verif_algo<F: ScalarField>(
     let m = input.m;
     let u = input.u;
     let v = input.v;
-
     let d = input.d;
 
-    let tol = 1e-5;
+    // load in the circuit
+    let m: ZkMatrix<F, PRECISION_BITS> = ZkMatrix::new(ctx, &fpchip, &m);
+    let u: ZkMatrix<F, PRECISION_BITS> = ZkMatrix::new(ctx, &fpchip, &u);
+    let v: ZkMatrix<F, PRECISION_BITS> = ZkMatrix::new(ctx, &fpchip, &v);
+    let d: ZkVector<F, PRECISION_BITS> = ZkVector::new(ctx, &fpchip, &d);
 
-    // init_rand = hash(0)
-    let zero = ctx.load_constant(F::zero());
-    const T: usize = 3;
-    const RATE: usize = 2;
-    const R_F: usize = 8;
-    const R_P: usize = 57;
-    let mut poseidon = PoseidonChip::<F, T, RATE>::new(ctx, R_F, R_P).unwrap();
-    poseidon.update(&[zero]);
-    let _ = poseidon.squeeze(ctx, gate).unwrap();
+    let tol = 1e-5;
 
     let chip = RlpChip::new(&range, None);
     // let witness = chip.decompose_rlp_field_phase0(ctx, inputs, max_len);
