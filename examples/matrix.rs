@@ -1047,9 +1047,7 @@ fn main() {
     MockProver::run(k, &circuit, vec![]).unwrap().assert_satisfied();
 }
 
-// TODO:
-// select good value of LOOKUP_BITS
-
-// to run:
-// export LOOKUP_BITS=12
-// cargo run --example matrix -- --name matrix -k 20 mock
+// to create input file use
+// python3.9 input-creator.py <SIZE>
+// to run use:
+// cargo run --example matrix
