@@ -205,8 +205,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkVector<F, PRECISION_BITS> {
         return Self { v: y };
     }
 
-    // constraints all the entries of the vector to be in between -2^max_bits and 2^max_bits
-
+    /// constraints all the entries of the vector to be in between 0 and 2^max_bits and its entries must be in decreasing order
     pub fn entries_less_than(
         &self,
         max_bits: u32,
@@ -214,11 +213,21 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkVector<F, PRECISION_BITS> {
         fpchip: &FixedPointChip<F, PRECISION_BITS>,
     ) {
         let bound = 2u64.pow(max_bits);
-        let bound_field = ctx.load_witness(F::from(bound));
+        //let bound_field = ctx.load_witness(F::from(bound));
 
         for i in 0..self.v.len() {
-            let ele_add = fpchip.qadd(ctx, self.v[i], bound_field);
-            fpchip.gate.check_less_than_safe(ctx, ele_add, 2 * bound);
+            fpchip.gate.check_less_than_safe(ctx, self.v[i], bound);
+        }
+
+        let mut vec_inc: Vec<AssignedValue<F>> = Vec::new();
+
+        for i in 0..(self.v.len() - 1) {
+            let ele = fpchip.qsub(ctx, self.v[i], self.v[i + 1]);
+            vec_inc.push(ele);
+        }
+
+        for i in 0..vec_inc.len() {
+            fpchip.gate.check_less_than_safe(ctx, vec_inc[i], bound);
         }
     }
 }
