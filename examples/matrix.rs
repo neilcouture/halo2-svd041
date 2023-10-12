@@ -1,4 +1,4 @@
-#![allow(warnings)]
+// #![allow(warnings)]
 #![allow(dead_code)]
 #[allow(unused_imports)]
 use clap::Parser;
@@ -47,7 +47,6 @@ pub struct CircuitInput {
     pub m: Vec<Vec<f64>>,
     pub u: Vec<Vec<f64>>,
     pub v: Vec<Vec<f64>>,
-    // field element, but easier to deserialize as a string
 }
 
 #[derive(Clone)]
@@ -217,7 +216,8 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkVector<F, PRECISION_BITS> {
         return Self { v: y };
     }
 
-    /// constraints all the entries of the vector to be in between 0 and 2^max_bits and its entries must be in decreasing order
+    /// Constrains all the entries of the vector to be in between 0 and 2^max_bits and its entries must be in decreasing order
+    // TODO- change to range and more efficient in range
     pub fn entries_less_than(
         &self,
         max_bits: u32,
@@ -253,8 +253,11 @@ pub struct ZkMatrix<F: BigPrimeField, const PRECISION_BITS: u32> {
     // can also add fpchip to this itself
 }
 impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
-    // create a ZkMatrix from a f64 matrix
-    // leads to num_rows*num_col new cells
+    /// Creates a ZkMatrix from a f64 matrix
+    ///
+    /// Leads to num_rows*num_col new cells
+    ///
+    /// Does not constrain the output in anyway
     pub fn new(
         ctx: &mut Context<F>,
         fpchip: &FixedPointChip<F, PRECISION_BITS>,
@@ -278,6 +281,9 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
         return Self { matrix: zkmatrix, num_rows: num_rows, num_col: num_col };
     }
 
+    /// Dequantizes the matrix and returns it;
+    ///
+    /// Action is not constrained in anyway
     pub fn dequantize(&self, fpchip: &FixedPointChip<F, PRECISION_BITS>) -> Vec<Vec<f64>> {
         let mut dq_matrix: Vec<Vec<f64>> = Vec::new();
         for i in 0..self.num_rows {
@@ -289,6 +295,10 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
         }
         return dq_matrix;
     }
+
+    /// Prints the dequantized version of the matrix and returns it;
+    ///
+    /// Action is not constrained in anyway
     pub fn print(&self, fpchip: &FixedPointChip<F, PRECISION_BITS>) {
         print!("[\n");
         for i in 0..self.num_rows {
@@ -358,7 +368,10 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
     }
 
     /// Takes `c_s` and divides it by the quantization factor to scale it;
-    /// Useful after matrix multiplication
+    ///
+    /// Useful after matrix multiplication;
+    ///
+    /// Is costly- leads to ~94 (when lookup_bits =12) cells per element
     pub fn rescale_matrix(
         ctx: &mut Context<F>,
         fpchip: &FixedPointChip<F, PRECISION_BITS>,
@@ -408,7 +421,8 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
     /// takes as input two quantized matrices 'a', 'b' and check that the difference of each coefficient is smaller than tol,
     /// in the sense that the field elements of 'a' and 'b' represent real numbers throught the fixed point chip
     /// here "a" and "b" are defined as Vec<Vec<AssignedValue<F>>> rather than &Self for more flexibility when calling the function
-
+    ///
+    /// TODO: move this out of ZkMatrix
     pub fn check_mat_diff(
         ctx: &mut Context<F>,
         fpchip: &FixedPointChip<F, PRECISION_BITS>,
@@ -434,7 +448,6 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
 
     /// given a matrix of field elements 'a' and a field element 'scalar_id', checks that 'a' is close to the identity matrix times 'scalar_id',
     /// in the sense that the absolute value of the difference of each coefficient must be less than (tol*scaling of the fixed point chip)
-
     pub fn check_mat_id(
         ctx: &mut Context<F>,
         fpchip: &FixedPointChip<F, PRECISION_BITS>,
@@ -461,7 +474,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
     }
 
     // Given a matrix 'a' in the fixed point representation, checks that all of its entries are less in absolute value than a tolerance tol
-
+    // TODO: make this more efficient
     pub fn check_mat_entries_bounded(
         ctx: &mut Context<F>,
         fpchip: &FixedPointChip<F, PRECISION_BITS>,
@@ -1025,8 +1038,9 @@ fn main() {
     MockProver::run(k, &circuit, vec![]).unwrap().assert_satisfied();
 }
 
-//
 // to create input file use
 // python3.9 input-creator.py <SIZE>
 // to run use:
 // cargo run --example matrix
+
+// can probably use rlp.rlc()?
