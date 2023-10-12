@@ -459,13 +459,8 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
         }
     }
 
-    // function that outputs the transpose matrix of a matrix 'a'
-
-    pub fn transpose_matrix(
-        ctx: &mut Context<F>,
-        fpchip: &FixedPointChip<F, PRECISION_BITS>,
-        a: &Self,
-    ) -> Self {
+    /// function that outputs the transpose matrix of a matrix `a`
+    pub fn transpose_matrix(ctx: &mut Context<F>, a: &Self) -> Self {
         let mut a_trans: Vec<Vec<AssignedValue<F>>> = Vec::new();
 
         for i in 0..a.num_col {
@@ -604,58 +599,73 @@ pub fn field_mat_diagmat_mul<F: BigPrimeField>(
 /// given matrices 'm', 'u', 'v' and a vector 'd' in floating point, checks the svd m = u*d*v where the vector 'd' is viewed as a diagonal matrix
 /// also takes as input a tolerance level tol given as a floating point number
 /// init_rand is an assigned value used as a the random challenge
-
-pub fn check_svd<F: BigPrimeField, const PRECISION_BITS: u32>(
+pub fn check_svd_phase0<F: BigPrimeField, const PRECISION_BITS: u32>(
     ctx: &mut Context<F>,
     fpchip: &FixedPointChip<F, PRECISION_BITS>,
-    m: ZkMatrix<F, PRECISION_BITS>,
-    u: ZkMatrix<F, PRECISION_BITS>,
-    v: ZkMatrix<F, PRECISION_BITS>,
-    d: ZkVector<F, PRECISION_BITS>,
+    m: &ZkMatrix<F, PRECISION_BITS>,
+    u: &ZkMatrix<F, PRECISION_BITS>,
+    v: &ZkMatrix<F, PRECISION_BITS>,
+    d: &ZkVector<F, PRECISION_BITS>,
     tol: f64,
     max_bits_d: u32,
-    init_rand: AssignedValue<F>,
+) -> (
+    ZkMatrix<F, PRECISION_BITS>,
+    ZkMatrix<F, PRECISION_BITS>,
+    Vec<Vec<AssignedValue<F>>>,
+    Vec<Vec<AssignedValue<F>>>,
+    Vec<Vec<AssignedValue<F>>>,
 ) {
     let gate = fpchip.gate();
 
-    // let mq: ZkMatrix<F, PRECISION_BITS> = ZkMatrix::new(ctx, &fpchip, &m);
-    // let uq: ZkMatrix<F, PRECISION_BITS> = ZkMatrix::new(ctx, &fpchip, &u);
-    // let vq: ZkMatrix<F, PRECISION_BITS> = ZkMatrix::new(ctx, &fpchip, &v);
-
-    // let dq: ZkVector<F, PRECISION_BITS> = ZkVector::new(ctx, &fpchip, &d);
-
-    // check the entries of dq have at most max_bits_d + precision_bits
+    // check the entries of d have at most max_bits_d + precision_bits
     let max_bits = max_bits_d + PRECISION_BITS;
     ZkVector::entries_less_than(&d, max_bits, ctx, &fpchip);
 
-    // check that the entries of uq, vq correspond to real numbers in the interval (-1.01,1.01)
+    // check that the entries of u, v correspond to real numbers in the interval (-1.01,1.01)
     ZkMatrix::check_mat_entries_bounded(ctx, &fpchip, &u.matrix, 1.01);
     ZkMatrix::check_mat_entries_bounded(ctx, &fpchip, &v.matrix, 1.01);
 
     // Lets define the transpose matrix of and v
-    let u_t = ZkMatrix::transpose_matrix(ctx, &fpchip, &u);
-    let v_t = ZkMatrix::transpose_matrix(ctx, &fpchip, &v);
+    let u_t: ZkMatrix<F, PRECISION_BITS> = ZkMatrix::transpose_matrix(ctx, &u);
+    let v_t: ZkMatrix<F, PRECISION_BITS> = ZkMatrix::transpose_matrix(ctx, &v);
 
     // define the scaled tolerance level
     let tol_scale = tol * (2u64.pow(PRECISION_BITS) as f64);
 
-    let prod1: Vec<Vec<AssignedValue<F>>> = field_mat_diagmat_mul(ctx, gate, &u.matrix, &d.v);
-    let prod2: Vec<Vec<AssignedValue<F>>> = honest_prover_mat_mul(ctx, &m.matrix, &v_t.matrix);
+    let u_times_d: Vec<Vec<AssignedValue<F>>> = field_mat_diagmat_mul(ctx, gate, &u.matrix, &d.v);
+    let m_times_vt: Vec<Vec<AssignedValue<F>>> = honest_prover_mat_mul(ctx, &m.matrix, &v_t.matrix);
 
-    ZkMatrix::check_mat_diff(ctx, &fpchip, &prod1, &prod2, tol_scale);
+    ZkMatrix::check_mat_diff(ctx, &fpchip, &u_times_d, &m_times_vt, tol_scale);
 
     let quant = F::from(2u64.pow(PRECISION_BITS));
     let quant_square = ctx.load_constant(quant * quant);
 
-    let prod_u_ut = honest_prover_mat_mul(ctx, &u.matrix, &u_t.matrix);
-    ZkMatrix::check_mat_id(ctx, &fpchip, &prod_u_ut, quant_square, tol_scale);
+    let u_times_ut = honest_prover_mat_mul(ctx, &u.matrix, &u_t.matrix);
+    ZkMatrix::check_mat_id(ctx, &fpchip, &u_times_ut, quant_square, tol_scale);
 
-    let prod_v_vt = honest_prover_mat_mul(ctx, &v.matrix, &v_t.matrix);
-    ZkMatrix::check_mat_id(ctx, &fpchip, &prod_v_vt, quant_square, tol_scale);
+    let v_times_vt = honest_prover_mat_mul(ctx, &v.matrix, &v_t.matrix);
+    ZkMatrix::check_mat_id(ctx, &fpchip, &v_times_vt, quant_square, tol_scale);
 
-    ZkMatrix::verify_mul(ctx, &fpchip, &m, &v_t, &prod2, &init_rand);
-    ZkMatrix::verify_mul(ctx, &fpchip, &u, &u_t, &prod_u_ut, &init_rand);
-    ZkMatrix::verify_mul(ctx, &fpchip, &v, &v_t, &prod_v_vt, &init_rand);
+    return (u_t, v_t, m_times_vt, u_times_ut, v_times_vt);
+}
+
+pub fn check_svd_phase1<F: BigPrimeField, const PRECISION_BITS: u32>(
+    ctx: &mut Context<F>,
+    fpchip: &FixedPointChip<F, PRECISION_BITS>,
+    m: &ZkMatrix<F, PRECISION_BITS>,
+    u: &ZkMatrix<F, PRECISION_BITS>,
+    v: &ZkMatrix<F, PRECISION_BITS>,
+    u_t: &ZkMatrix<F, PRECISION_BITS>,
+    v_t: &ZkMatrix<F, PRECISION_BITS>,
+    m_times_vt: &Vec<Vec<AssignedValue<F>>>,
+    u_times_ut: &Vec<Vec<AssignedValue<F>>>,
+    v_times_vt: &Vec<Vec<AssignedValue<F>>>,
+    init_rand: &AssignedValue<F>,
+) {
+    ZkMatrix::verify_mul(ctx, &fpchip, &m, &v_t, &m_times_vt, &init_rand);
+    ZkMatrix::verify_mul(ctx, &fpchip, &u, &u_t, &u_times_ut, &init_rand);
+    ZkMatrix::verify_mul(ctx, &fpchip, &v, &v_t, &v_times_vt, &init_rand);
+    println!("Phase1 success");
 }
 
 /// simple tests to make sure zkvector is okay; can also be randomized
@@ -926,6 +936,10 @@ fn zk_random_verif_algo<F: ScalarField>(
     let chip = RlpChip::new(&range, None);
     // let witness = chip.decompose_rlp_field_phase0(ctx, inputs, max_len);
 
+    let (u_t, v_t, m_times_vt, u_times_ut, v_times_vt) =
+        check_svd_phase0(ctx, &fpchip, &m, &u, &v, &d, tol, 30);
+
+    // copied from rlp_string_circuit in axiom-eth> src> rlp> tests
     let synthesize_phase1 = move |b: &mut RlcThreadBuilder<F>, rlc: &RlcChip<F>| {
         // old fpchip being moved
         let fpchip2 = fpchip;
@@ -940,11 +954,19 @@ fn zk_random_verif_algo<F: ScalarField>(
         let init_rand = rlc.gamma_pow_cached()[0];
         println!("The init rand = {:?}", init_rand.value());
 
-        let zero = ctx_gate.load_constant(F::zero());
-        let one = ctx_gate.load_constant(F::one());
-        chip.range().check_less_than(ctx_gate, zero, one, 5);
-
-        check_svd(ctx_gate, &fpchip2, m, u, v, d, tol, 30, init_rand);
+        check_svd_phase1(
+            ctx_gate,
+            &fpchip2,
+            &m,
+            &u,
+            &v,
+            &u_t,
+            &v_t,
+            &m_times_vt,
+            &u_times_ut,
+            &v_times_vt,
+            &init_rand,
+        );
     };
     let circuit = RlpCircuitBuilder::new(builder, None, synthesize_phase1);
     // auto-configure circuit if not in prover mode for convenience
