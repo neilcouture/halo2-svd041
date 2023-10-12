@@ -1,3 +1,4 @@
+#![allow(warnings)]
 use halo2_base::QuantumCell::{Constant, Existing, Witness};
 use halo2_base::{
     gates::{range::RangeStrategy, GateChip, GateInstructions, RangeChip, RangeInstructions},

@@ -1,3 +1,4 @@
+#![allow(warnings)]
 #![allow(dead_code)]
 #[allow(unused_imports)]
 use clap::Parser;
@@ -616,9 +617,15 @@ pub fn field_mat_diagmat_mul<F: BigPrimeField>(
     return m;
 }
 
-/// given matrices 'm', 'u', 'v' and a vector 'd' in floating point, checks the svd m = u*d*v where the vector 'd' is viewed as a diagonal matrix
-/// also takes as input a tolerance level tol given as a floating point number
-/// init_rand is an assigned value used as a the random challenge
+/// Given matrices `m`, `u`, `v` and a vector `d` in fixed point representation with `fpchip`, performs the first part of checks that the SVD of `m = u*d*v` where the vector `d` is viewed as a diagonal matrix;
+///
+/// Also takes as input a tolerance level `tol` given as a floating point number
+///
+/// Must call `check_svd_phase1` function following this function in the second phase to complete the SVD check
+///
+/// Might silently fail if `m` is not correctly encoded according to the fixed representation of `fpchip`
+///
+/// The outputs are simply witnesses to be used for the corresponding variables in `check_svd_phase1`
 pub fn check_svd_phase0<F: BigPrimeField, const PRECISION_BITS: u32>(
     ctx: &mut Context<F>,
     fpchip: &FixedPointChip<F, PRECISION_BITS>,
@@ -669,6 +676,15 @@ pub fn check_svd_phase0<F: BigPrimeField, const PRECISION_BITS: u32>(
     return (u_t, v_t, m_times_vt, u_times_ut, v_times_vt);
 }
 
+/// Second phase function for checking SVD;
+///
+/// `check_svd_phase0` should be run in the first phase, so that its outputs are commited to in the first phase;
+///
+/// Inputs correspond to the `m`, `u`, `v` as used in `check_svd_phase0` and other inputs correspond to the outputs of `check_svd_phase0`
+///
+/// `init_rand` is the random challenge created after the first phase; must be a commitment of all the inputs to this function
+///
+/// First phase might silently fail if `m` is not correctly encoded according to the fixed representation of `fpchip`
 pub fn check_svd_phase1<F: BigPrimeField, const PRECISION_BITS: u32>(
     ctx: &mut Context<F>,
     fpchip: &FixedPointChip<F, PRECISION_BITS>,
@@ -685,7 +701,7 @@ pub fn check_svd_phase1<F: BigPrimeField, const PRECISION_BITS: u32>(
     ZkMatrix::verify_mul(ctx, &fpchip, &m, &v_t, &m_times_vt, &init_rand);
     ZkMatrix::verify_mul(ctx, &fpchip, &u, &u_t, &u_times_ut, &init_rand);
     ZkMatrix::verify_mul(ctx, &fpchip, &v, &v_t, &v_times_vt, &init_rand);
-    println!("Phase1 success");
+    // println!("Phase1 success");
 }
 
 /// simple tests to make sure zkvector is okay; can also be randomized
@@ -1009,6 +1025,7 @@ fn main() {
     MockProver::run(k, &circuit, vec![]).unwrap().assert_satisfied();
 }
 
+//
 // to create input file use
 // python3.9 input-creator.py <SIZE>
 // to run use:
