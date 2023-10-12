@@ -58,6 +58,9 @@ pub struct ZkVector<F: BigPrimeField, const PRECISION_BITS: u32> {
 }
 
 impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkVector<F, PRECISION_BITS> {
+    /// Creates a ZkVector from `v` using the quantization of the `fpchip`;
+    ///
+    /// Does not constrain the output in anyway
     pub fn new(
         ctx: &mut Context<F>,
         fpchip: &FixedPointChip<F, PRECISION_BITS>,
@@ -77,6 +80,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkVector<F, PRECISION_BITS> {
     }
 
     /// Dequantizes the vector and returns it;
+    ///
     /// Action is not constrained in anyway
     pub fn dequantize(&self, fpchip: &FixedPointChip<F, PRECISION_BITS>) -> Vec<f64> {
         let mut dq_v: Vec<f64> = Vec::new();
@@ -87,6 +91,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkVector<F, PRECISION_BITS> {
     }
 
     /// Prints the dequantized version of the vector and returns it;
+    ///
     /// Action is not constrained in anyway
     pub fn print(&self, fpchip: &FixedPointChip<F, PRECISION_BITS>) {
         let dq_v = self.dequantize(fpchip);
@@ -135,7 +140,8 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkVector<F, PRECISION_BITS> {
         return res;
     }
 
-    /// With zk constraints calculates the square of the norm of the vector
+    /// With zk constraints calculates the square of the norm of the vector;
+    ///
     /// Outputs the square of the norm
     pub fn _norm_square(
         &self,
@@ -145,9 +151,11 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkVector<F, PRECISION_BITS> {
         return self.inner_product(ctx, fpchip, &self.v);
     }
 
-    /// With zk constraints calculates the norm of the vector
-    /// Outputs the norm
-    /// Square root function adds a lot error; Avoid using
+    /// With zk constraints calculates the norm of the vector;
+    ///
+    /// Outputs the norm;
+    ///
+    /// Square root function is expensive and adds a lot error; Avoid using whenever possible
     pub fn norm(
         &self,
         ctx: &mut Context<F>,
@@ -157,7 +165,8 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkVector<F, PRECISION_BITS> {
         return fpchip.qsqrt(ctx, norm_sq);
     }
 
-    /// With zk constraints calculates the distance squared of the vector from vector [x]
+    /// With zk constraints calculates the distance squared of the vector from vector `x`;
+    ///
     /// Outputs the distance squared
     pub fn _dist_square(
         &self,
@@ -174,9 +183,11 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkVector<F, PRECISION_BITS> {
         return diff._norm_square(ctx, fpchip);
     }
 
-    /// With zk constraints calculates the dist of the vector from vector [x]
-    /// Outputs the norm
-    /// Square root function adds a lot error; Avoid using
+    /// With zk constraints calculates the dist of the vector from vector `x`
+    ///
+    /// Outputs the norm;
+    ///
+    /// Square root function adds a lot error and is very expensive; Avoid using whenever possible
     pub fn dist(
         &self,
         ctx: &mut Context<F>,
@@ -911,7 +922,7 @@ fn test_field_mat_times_vec<F: ScalarField>(
     zku1.print(&fpchip);
 }
 
-fn zk_random_verif_algo<F: ScalarField>(
+fn two_phase_svd_verif<F: ScalarField>(
     mut builder: RlcThreadBuilder<F>,
     input: CircuitInput,
 ) -> RlpCircuitBuilder<F, impl FnSynthesize<F>> {
@@ -983,55 +994,6 @@ fn zk_random_verif_algo<F: ScalarField>(
         circuit.config(degree as usize, Some(6));
     }
     return circuit;
-
-    // println!("Success");
-    /* let uq = ZkMatrix::new(ctx, &fpchip, &u);
-
-       println!("new test below");
-
-       ZkMatrix::print(&uq , &fpchip);
-
-       let uq_t = ZkMatrix::transpose_matrix(ctx, &fpchip, &uq);
-
-       ZkMatrix::print(&uq_t, &fpchip);
-
-       let prod_u_ut = honest_prover_mat_mul(ctx, &uq.matrix, &uq_t.matrix);
-
-       for i in 0..prod_u_ut.len() {
-           for j in 0..prod_u_ut[0].len() {
-               let elem = prod_u_ut[i][j];
-               print!("{:?}, ", elem.value());
-           }
-           print!("\n");
-       }
-       println!("]");
-
-       let quant = F::from((2u64.pow(PRECISION_BITS) as f64) as u64);
-
-       let quant2 = quant*quant;
-
-       println!("{:?}", quant2);
-    */
-
-    /* for i in 0..mq.num_rows {
-        for j in 0..mq.num_col {
-            let elem = mq.matrix[i][j];
-            print!("{:?}, ", elem.value());
-        }
-        print!("\n");
-    }
-    println!("]");
-
-    for i in 0..prod2_rescale.matrix.len() {
-        for j in 0..prod2_rescale.matrix[0].len() {
-            let elem = prod2_rescale.matrix[i][j];
-            print!("{:?}, ", elem.value());
-        }
-        print!("\n");
-    }
-    println!("]"); */
-
-    // v) lastly we need to check that the matrices uq and vq are orthogonal, we define the matrix transpose of uq and vq
 }
 
 fn main() {
@@ -1043,7 +1005,7 @@ fn main() {
     // // run different zk commands based on the command line arguments
     // run(zk_random_verif_algo, args);
 
-    let circuit = zk_random_verif_algo(RlcThreadBuilder::<Fr>::mock(), input);
+    let circuit = two_phase_svd_verif(RlcThreadBuilder::<Fr>::mock(), input);
     MockProver::run(k, &circuit, vec![]).unwrap().assert_satisfied();
 }
 
