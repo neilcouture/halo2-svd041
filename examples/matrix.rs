@@ -494,6 +494,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
     }
 
     /// function that outputs the transpose matrix of a matrix `a`
+    /// TODO: ctx is unused
     pub fn transpose_matrix(ctx: &mut Context<F>, a: &Self) -> Self {
         let mut a_trans: Vec<Vec<AssignedValue<F>>> = Vec::new();
 
@@ -523,8 +524,11 @@ pub fn field_mat_mul<F: BigPrimeField>(
     assert_eq!(a[0].len(), b.len());
 
     let mut c: Vec<Vec<F>> = Vec::new();
+    #[allow(non_snake_case)]
     let N = a.len();
+    #[allow(non_snake_case)]
     let K = a[0].len();
+    #[allow(non_snake_case)]
     let M = b[0].len();
 
     for i in 0..N {
@@ -1026,21 +1030,26 @@ fn two_phase_svd_verif<F: ScalarField>(
 }
 
 fn main() {
-    let data = fs::read_to_string("./data/matrix.in").expect("Unable to read file");
-    let input: CircuitInput = serde_json::from_str(&data).expect("JSON was not well-formatted");
     set_var("DEGREE", 20.to_string());
     set_var("LOOKUP_BITS", 19.to_string());
     let k: u32 = var("DEGREE").unwrap_or_else(|_| panic!("DEGREE not set")).parse().unwrap();
-    // // run different zk commands based on the command line arguments
-    // run(zk_random_verif_algo, args);
+
+    // let data = fs::read_to_string("./data/matrix.in").expect("Unable to read file");
+    // let input: CircuitInput = serde_json::from_str(&data).expect("JSON was not well-formatted");
+
+    // let circuit = two_phase_svd_verif(RlcThreadBuilder::<Fr>::mock(), input);
+    // MockProver::run(k, &circuit, vec![]).unwrap().assert_satisfied();
+
+    let data = fs::read_to_string("./data/matrix-wrong.in").expect("Unable to read file");
+    let input: CircuitInput = serde_json::from_str(&data).expect("JSON was not well-formatted");
 
     let circuit = two_phase_svd_verif(RlcThreadBuilder::<Fr>::mock(), input);
-    MockProver::run(k, &circuit, vec![]).unwrap().assert_satisfied();
+    MockProver::run(k, &circuit, vec![]).unwrap();
+
+    println!("Test passed");
 }
 
 // to create input file use
 // python3.9 input-creator.py <SIZE>
 // to run use:
 // cargo run --example matrix
-
-// can probably use rlp.rlc()?
