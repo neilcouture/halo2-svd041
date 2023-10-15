@@ -1107,12 +1107,19 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> FixedPointInstructions<F, PREC
         // lookup constraint
         self.range_gate().check_big_less_than_safe(ctx, rem, b);
         // a < 2^{4p}, b = 2^p, so |q| < 2^{3p}
+        // abs_bound = 2^{3P}
         let abs_bound = BigUint::from(2u32).pow(PRECISION_BITS * 3 as u32);
+        // abs_bound_minus1 = 2^{3P} - 1
+        let abs_bound_minus1 = abs_bound.clone() - BigUint::from(1u32);
+        // new_bound = 2*2^{3P} - 1
         let new_bound = abs_bound.clone() * BigUint::from(2u32) - BigUint::from(1u32);
-        let div_plus_bound = self.gate().add(ctx, div, Constant(biguint_to_fe(&abs_bound)));
+        // div_plus_abs_bound_minus1 = div + 2^{3P} - 1
+        let div_plus_abs_bound_minus1 =
+            self.gate().add(ctx, div, Constant(biguint_to_fe(&abs_bound_minus1)));
 
+        // |q| < 2^{3p} <==> div_plus_abs_bound_minus1 in [0, 2*2^{3P} - 1)
         // lookup constraint
-        self.range_gate().check_big_less_than_safe(ctx, div_plus_bound, new_bound);
+        self.range_gate().check_big_less_than_safe(ctx, div_plus_abs_bound_minus1, new_bound);
 
         (div, rem)
     }

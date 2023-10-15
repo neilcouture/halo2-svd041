@@ -216,30 +216,36 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkVector<F, PRECISION_BITS> {
         return Self { v: y };
     }
 
-    /// Constrains all the entries of the vector to be in between 0 and 2^max_bits and its entries must be in decreasing order
-    // TODO- change to range and more efficient in range
+    /// Constrains all the entries of the vector to be in [0, 2^max_bits)
     pub fn entries_less_than(
         &self,
-        max_bits: u32,
         ctx: &mut Context<F>,
         fpchip: &FixedPointChip<F, PRECISION_BITS>,
+        max_bits: usize,
     ) {
-        let bound = 2u64.pow(max_bits);
-        //let bound_field = ctx.load_witness(F::from(bound));
-
-        for i in 0..self.v.len() {
-            fpchip.gate.check_less_than_safe(ctx, self.v[i], bound);
+        for elem in &self.v {
+            fpchip.range_gate().range_check(ctx, *elem, max_bits);
         }
+    }
 
-        let mut vec_inc: Vec<AssignedValue<F>> = Vec::new();
+    /// Assumes all entries of the vector are in [0, 2^max_bits) (fails silently otherwise)
+    ///
+    /// Constrains the entries to be in decreasing order
+    pub fn entries_in_desc_order(
+        &self,
+        ctx: &mut Context<F>,
+        fpchip: &FixedPointChip<F, PRECISION_BITS>,
+        max_bits: usize,
+    ) {
+        let mut vec_diff: Vec<AssignedValue<F>> = Vec::new();
 
         for i in 0..(self.v.len() - 1) {
             let ele = fpchip.qsub(ctx, self.v[i], self.v[i + 1]);
-            vec_inc.push(ele);
+            vec_diff.push(ele);
         }
 
-        for i in 0..vec_inc.len() {
-            fpchip.gate.check_less_than_safe(ctx, vec_inc[i], bound);
+        for elem in &vec_diff {
+            fpchip.range_gate().range_check(ctx, *elem, max_bits);
         }
     }
 }
@@ -398,7 +404,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
     fn hash_matrix_list(
         ctx: &mut Context<F>,
         gate: &GateChip<F>,
-        matrix_list: Vec<&Self>,
+        matrix_list: &Vec<Self>,
     ) -> AssignedValue<F> {
         // T, R_F, R_P values correspond to POSEIDON-128 values given in Table 2 of the Poseidon hash paper
         const T: usize = 3;
@@ -418,84 +424,10 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
         return init_rand;
     }
 
-    /// takes as input two quantized matrices 'a', 'b' and check that the difference of each coefficient is smaller than tol,
-    /// in the sense that the field elements of 'a' and 'b' represent real numbers throught the fixed point chip
-    /// here "a" and "b" are defined as Vec<Vec<AssignedValue<F>>> rather than &Self for more flexibility when calling the function
+    /// Outputs the transpose matrix of a matrix `a`;
     ///
-    /// TODO: move this out of ZkMatrix
-    pub fn check_mat_diff(
-        ctx: &mut Context<F>,
-        fpchip: &FixedPointChip<F, PRECISION_BITS>,
-        a: &Vec<Vec<AssignedValue<F>>>,
-        b: &Vec<Vec<AssignedValue<F>>>,
-        tol: f64,
-    ) {
-        assert_eq!(a.len(), b.len());
-        assert_eq!(a[0].len(), b[0].len());
-
-        let quant_tol = (tol * (2u64.pow(PRECISION_BITS) as f64)) as u64;
-
-        let quant_tol_field = ctx.load_witness(F::from(quant_tol));
-
-        for i in 0..a.len() {
-            for j in 0..a[0].len() {
-                let ele = fpchip.qsub(ctx, a[i][j], b[i][j]);
-                let ele_add = fpchip.qadd(ctx, ele, quant_tol_field);
-                fpchip.gate.check_less_than_safe(ctx, ele_add, 2 * quant_tol);
-            }
-        }
-    }
-
-    /// given a matrix of field elements 'a' and a field element 'scalar_id', checks that 'a' is close to the identity matrix times 'scalar_id',
-    /// in the sense that the absolute value of the difference of each coefficient must be less than (tol*scaling of the fixed point chip)
-    pub fn check_mat_id(
-        ctx: &mut Context<F>,
-        fpchip: &FixedPointChip<F, PRECISION_BITS>,
-        a: &Vec<Vec<AssignedValue<F>>>,
-        scalar_id: AssignedValue<F>,
-        tol: f64,
-    ) {
-        let quant_tol = (tol * (2u64.pow(PRECISION_BITS) as f64)) as u64;
-
-        let quant_tol_field = ctx.load_witness(F::from(quant_tol));
-
-        for i in 0..a.len() {
-            for j in 0..a[0].len() {
-                if i == j {
-                    let ele = fpchip.qsub(ctx, a[i][i], scalar_id);
-                    let ele_add = fpchip.qadd(ctx, ele, quant_tol_field);
-                    fpchip.gate.check_less_than_safe(ctx, ele_add, 2 * quant_tol);
-                } else {
-                    let ele_add = fpchip.qadd(ctx, a[i][j], quant_tol_field);
-                    fpchip.gate.check_less_than_safe(ctx, ele_add, 2 * quant_tol);
-                }
-            }
-        }
-    }
-
-    // Given a matrix 'a' in the fixed point representation, checks that all of its entries are less in absolute value than a tolerance tol
-    // TODO: make this more efficient
-    pub fn check_mat_entries_bounded(
-        ctx: &mut Context<F>,
-        fpchip: &FixedPointChip<F, PRECISION_BITS>,
-        a: &Vec<Vec<AssignedValue<F>>>,
-        tol: f64,
-    ) {
-        let quant_tol = (tol * (2u64.pow(PRECISION_BITS) as f64)) as u64;
-
-        let quant_tol_field = ctx.load_witness(F::from(quant_tol));
-
-        for i in 0..a.len() {
-            for j in 0..a[0].len() {
-                let ele_add = fpchip.qadd(ctx, a[i][j], quant_tol_field);
-                fpchip.gate.check_less_than_safe(ctx, ele_add, 2 * quant_tol);
-            }
-        }
-    }
-
-    /// function that outputs the transpose matrix of a matrix `a`
-    /// TODO: ctx is unused
-    pub fn transpose_matrix(ctx: &mut Context<F>, a: &Self) -> Self {
+    /// Doesn't create any new constraints; just outputs the a copy of the transposed Self.matrix
+    pub fn transpose_matrix(a: &Self) -> Self {
         let mut a_trans: Vec<Vec<AssignedValue<F>>> = Vec::new();
 
         for i in 0..a.num_col {
@@ -506,6 +438,88 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
             a_trans.push(new_row);
         }
         return Self { matrix: a_trans, num_rows: a.num_col, num_col: a.num_rows };
+    }
+}
+
+/// Constrains that `x` is in the set `{-(bnd-1), -(bnd-2), ..., 0, 1, ..., (bnd-1)}`
+///
+/// Does so by checking that `x+(bnd-1) < 2*bnd - 1` as a range check
+pub fn check_abs_less_than<F: BigPrimeField>(
+    ctx: &mut Context<F>,
+    range: &RangeChip<F>,
+    x: AssignedValue<F>,
+    bnd: u64,
+) {
+    assert!(bnd < 2u64.pow(63));
+    let new_bnd = 2 * bnd - 1;
+    let translated_x = range.gate.add(ctx, x, Constant(F::from(bnd - 1)));
+    range.check_less_than_safe(ctx, translated_x, new_bnd);
+}
+
+/// Takes as two matrices `a` and `b` quantised according to `fpchip` as input and checks that `|a[i][j] - b[i][j]| < tol` for each `i,j`;
+///
+/// Assumes matrix `a` and `b` are well defined matrices (all rows have the same size) and asserts (outside of circuit) that they can be multiplied
+pub fn check_mat_diff<F: BigPrimeField, const PRECISION_BITS: u32>(
+    ctx: &mut Context<F>,
+    fpchip: &FixedPointChip<F, PRECISION_BITS>,
+    a: &Vec<Vec<AssignedValue<F>>>,
+    b: &Vec<Vec<AssignedValue<F>>>,
+    tol: f64,
+) {
+    assert_eq!(a.len(), b.len());
+    assert_eq!(a[0].len(), b[0].len());
+    assert!(tol > 0.0);
+    assert!(tol < 2u64.pow(32) as f64); // otherwise quant_tol will overflow
+
+    let quant_tol = (tol * (2u64.pow(PRECISION_BITS) as f64)).round() as u64;
+    // let quant_tol_field = ctx.load_witness(F::from(quant_tol));
+
+    for i in 0..a.len() {
+        for j in 0..a[0].len() {
+            let diff = fpchip.qsub(ctx, a[i][j], b[i][j]);
+            check_abs_less_than(ctx, &fpchip.range_gate(), diff, quant_tol);
+        }
+    }
+}
+
+/// Given a matrix of field elements `a` and a field element `scalar_id`, checks that `a` is close to the identity matrix times `scalar_id`,
+/// in the sense that the absolute value of the difference of each coefficient must be less than `tol*quantization_scale`
+pub fn check_mat_id<F: BigPrimeField, const PRECISION_BITS: u32>(
+    ctx: &mut Context<F>,
+    fpchip: &FixedPointChip<F, PRECISION_BITS>,
+    a: &Vec<Vec<AssignedValue<F>>>,
+    scalar_id: AssignedValue<F>,
+    tol: f64,
+) {
+    let quant_tol = (tol * (2u64.pow(PRECISION_BITS) as f64)) as u64;
+
+    for i in 0..a.len() {
+        for j in 0..a[0].len() {
+            if i == j {
+                let diff = fpchip.qsub(ctx, a[i][i], scalar_id);
+                check_abs_less_than(ctx, &fpchip.range_gate(), diff, quant_tol);
+            } else {
+                check_abs_less_than(ctx, &fpchip.range_gate(), a[i][j], quant_tol);
+            }
+        }
+    }
+}
+
+/// Given a matrix `a` in the fixed point representation, checks that all of its entries are less in absolute value than some bound `bnd`
+///
+/// COMMENT- for our specific use case- to make sure that unitaries are in (-1,1), it might be better to use range_check based checks
+pub fn check_mat_entries_bounded<F: BigPrimeField, const PRECISION_BITS: u32>(
+    ctx: &mut Context<F>,
+    fpchip: &FixedPointChip<F, PRECISION_BITS>,
+    a: &Vec<Vec<AssignedValue<F>>>,
+    bnd: f64,
+) {
+    let quant_tol = (bnd * (2u64.pow(PRECISION_BITS) as f64)) as u64;
+
+    for i in 0..a.len() {
+        for j in 0..a[0].len() {
+            check_abs_less_than(ctx, &fpchip.range_gate(), a[i][j], quant_tol);
+        }
     }
 }
 
@@ -577,6 +591,7 @@ pub fn honest_prover_mat_mul<F: BigPrimeField>(
 
 /// Multiplies matrix `a` to vector `v` in the zk-circuit and returns the constrained output `a.v`
 /// -- all assuming `a` and `v` are field elements (and not fixed point encoded)
+///
 /// Assumes matrix `a` is well defined (rows are equal size) and asserts (outside circuit) `a` can be multiplied to `v`
 ///
 /// #CONSTRAINTS = N^2
@@ -608,13 +623,13 @@ pub fn field_mat_vec_mul<F: BigPrimeField>(
     return y;
 }
 
-/// Multiplies matrix `a` by a diag matrix represented as a vector `v` in the zk-circuit and returns the constrained output `a*v`
+/// Multiplies matrix `a` by a diagonal matrix represented as a vector `v` in the zk-circuit and returns the constrained output `a*v`
 /// -- all assuming `a` and `v` are field elements, (and not fixed point encoded)
 ///
 /// Assumes matrix `a` is well defined (rows are equal size) and asserts (outside circuit) `a` can be multiplied to `v`
 ///
 /// #CONSTRAINTS = N^2
-pub fn field_mat_diagmat_mul<F: BigPrimeField>(
+pub fn mat_times_diag_mat<F: BigPrimeField>(
     ctx: &mut Context<F>,
     gate: &GateChip<F>,
     a: &Vec<Vec<AssignedValue<F>>>,
@@ -635,6 +650,7 @@ pub fn field_mat_diagmat_mul<F: BigPrimeField>(
 }
 
 /// Given matrices `m`, `u`, `v` and a vector `d` in fixed point representation with `fpchip`, performs the first part of checks that the SVD of `m = u*d*v` where the vector `d` is viewed as a diagonal matrix;
+/// `u` and `v` are unitraries and `d` is a positive decreasing vector of singular values;
 ///
 /// Also takes as input a tolerance level `tol` given as a floating point number
 ///
@@ -662,33 +678,45 @@ pub fn check_svd_phase0<F: BigPrimeField, const PRECISION_BITS: u32>(
     let gate = fpchip.gate();
 
     // check the entries of d have at most max_bits_d + precision_bits
-    let max_bits = max_bits_d + PRECISION_BITS;
-    ZkVector::entries_less_than(&d, max_bits, ctx, &fpchip);
+    let max_bits = (max_bits_d + PRECISION_BITS) as usize;
+    d.entries_less_than(ctx, &fpchip, max_bits);
+    // make sure d is in decreasing order
+    d.entries_in_desc_order(ctx, &fpchip, max_bits);
 
-    // check that the entries of u, v correspond to real numbers in the interval (-1.01,1.01)
-    ZkMatrix::check_mat_entries_bounded(ctx, &fpchip, &u.matrix, 1.01);
-    ZkMatrix::check_mat_entries_bounded(ctx, &fpchip, &v.matrix, 1.01);
+    // check that the entries of u, v correspond to real numbers in the interval (-1.0,1.0) upto an error of 2^-PRECISION_BITS
+    check_mat_entries_bounded(
+        ctx,
+        &fpchip,
+        &u.matrix,
+        1.0 + 2.0f64.powf(-1.0 * (PRECISION_BITS as f64)),
+    );
+    check_mat_entries_bounded(
+        ctx,
+        &fpchip,
+        &v.matrix,
+        1.0 + 2.0f64.powf(-1.0 * (PRECISION_BITS as f64)),
+    );
 
-    // Lets define the transpose matrix of and v
-    let u_t: ZkMatrix<F, PRECISION_BITS> = ZkMatrix::transpose_matrix(ctx, &u);
-    let v_t: ZkMatrix<F, PRECISION_BITS> = ZkMatrix::transpose_matrix(ctx, &v);
+    // Lets define the transpose matrix of u and v
+    let u_t: ZkMatrix<F, PRECISION_BITS> = ZkMatrix::transpose_matrix(&u);
+    let v_t: ZkMatrix<F, PRECISION_BITS> = ZkMatrix::transpose_matrix(&v);
 
     // define the scaled tolerance level
     let tol_scale = tol * (2u64.pow(PRECISION_BITS) as f64);
 
-    let u_times_d: Vec<Vec<AssignedValue<F>>> = field_mat_diagmat_mul(ctx, gate, &u.matrix, &d.v);
+    let u_times_d: Vec<Vec<AssignedValue<F>>> = mat_times_diag_mat(ctx, gate, &u.matrix, &d.v);
     let m_times_vt: Vec<Vec<AssignedValue<F>>> = honest_prover_mat_mul(ctx, &m.matrix, &v_t.matrix);
 
-    ZkMatrix::check_mat_diff(ctx, &fpchip, &u_times_d, &m_times_vt, tol_scale);
+    check_mat_diff(ctx, &fpchip, &u_times_d, &m_times_vt, tol_scale);
 
     let quant = F::from(2u64.pow(PRECISION_BITS));
     let quant_square = ctx.load_constant(quant * quant);
 
     let u_times_ut = honest_prover_mat_mul(ctx, &u.matrix, &u_t.matrix);
-    ZkMatrix::check_mat_id(ctx, &fpchip, &u_times_ut, quant_square, tol_scale);
+    check_mat_id(ctx, &fpchip, &u_times_ut, quant_square, tol_scale);
 
     let v_times_vt = honest_prover_mat_mul(ctx, &v.matrix, &v_t.matrix);
-    ZkMatrix::check_mat_id(ctx, &fpchip, &v_times_vt, quant_square, tol_scale);
+    check_mat_id(ctx, &fpchip, &v_times_vt, quant_square, tol_scale);
 
     return (u_t, v_t, m_times_vt, u_times_ut, v_times_vt);
 }
@@ -886,11 +914,8 @@ fn test_zkvector<F: ScalarField>(
 }
 
 /// useful for optimising cost and testing
-fn test_field_mat_times_vec<F: ScalarField>(
-    ctx: &mut Context<F>,
-    input: CircuitInput,
-    make_public: &mut Vec<AssignedValue<F>>,
-) where
+fn test_field_mat_times_vec<F: ScalarField>(ctx: &mut Context<F>)
+where
     F: BigPrimeField,
 {
     // lookup bits must agree with the size of the lookup table, which is specified by an environmental variable
@@ -955,7 +980,7 @@ fn test_field_mat_times_vec<F: ScalarField>(
     zku1.print(&fpchip);
 }
 
-fn two_phase_svd_verif<F: ScalarField>(
+pub fn two_phase_svd_verif<F: ScalarField>(
     mut builder: RlcThreadBuilder<F>,
     input: CircuitInput,
 ) -> RlpCircuitBuilder<F, impl FnSynthesize<F>> {
@@ -1034,17 +1059,18 @@ fn main() {
     set_var("LOOKUP_BITS", 19.to_string());
     let k: u32 = var("DEGREE").unwrap_or_else(|_| panic!("DEGREE not set")).parse().unwrap();
 
-    // let data = fs::read_to_string("./data/matrix.in").expect("Unable to read file");
-    // let input: CircuitInput = serde_json::from_str(&data).expect("JSON was not well-formatted");
-
-    // let circuit = two_phase_svd_verif(RlcThreadBuilder::<Fr>::mock(), input);
-    // MockProver::run(k, &circuit, vec![]).unwrap().assert_satisfied();
-
-    let data = fs::read_to_string("./data/matrix-wrong.in").expect("Unable to read file");
+    // let data = fs::read_to_string("./data/matrix-wrong.in").expect("Unable to read file");
+    let data = fs::read_to_string("./data/matrix.in").expect("Unable to read file");
     let input: CircuitInput = serde_json::from_str(&data).expect("JSON was not well-formatted");
 
     let circuit = two_phase_svd_verif(RlcThreadBuilder::<Fr>::mock(), input);
-    MockProver::run(k, &circuit, vec![]).unwrap();
+    MockProver::run(k, &circuit, vec![]).unwrap().assert_satisfied();
+
+    // let input: CircuitInput = serde_json::from_str(&data).expect("JSON was not well-formatted");
+
+    // let circuit = two_phase_svd_verif(RlcThreadBuilder::<Fr>::mock(), input);
+
+    // MockProver::run(k, &circuit, vec![]).unwrap().assert_satisfied();
 
     println!("Test passed");
 }

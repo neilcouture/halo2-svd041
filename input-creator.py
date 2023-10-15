@@ -40,9 +40,9 @@ if __name__ == "__main__":
             json.dump(dict_svd, json_file, indent=4)
 
         # change m to be wrong
-        rand_i = 0  # random.randrange(0, N)
-        rand_j = 0  # random.randrange(0, N)
-        mat_ran[rand_i][rand_j] += 1
+        rand_i = random.randrange(0, N)
+        rand_j = random.randrange(0, N)
+        mat_ran[rand_i][rand_j] += 1e-3
         dict_svd = {"m": mat_ran, "u": U, "d": D, "v": V}
 
         json_file_path = "./data/matrix-wrong.in"
