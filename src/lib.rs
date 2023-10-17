@@ -2,4 +2,6 @@
 #![allow(incomplete_features)]
 
 pub mod circuits;
+pub mod matrix;
 pub mod scaffold;
+pub mod svd;

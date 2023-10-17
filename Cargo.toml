@@ -1,5 +1,5 @@
 [package]
-name = "halo2-scaffold"
+name = "halo2-svd"
 version = "0.2.0"
 edition = "2021"
 
