@@ -25,14 +25,12 @@ use halo2_base::{
     QuantumCell::{Constant, Existing, Witness},
 };
 use halo2_base::{AssignedValue, QuantumCell};
-use halo2_scaffold::gadget::fixed_point::{FixedPointChip, FixedPointInstructions};
-use halo2_scaffold::scaffold::cmd::Cli;
-use halo2_scaffold::scaffold::run;
 use poseidon::PoseidonChip;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::env::{set_var, var};
 use std::fs;
+use zk_fixed_point_chip::gadget::fixed_point::{FixedPointChip, FixedPointInstructions};
 
 use axiom_eth::rlp::{
     builder::{FnSynthesize, RlcThreadBuilder, RlpCircuitBuilder},
@@ -1054,8 +1052,8 @@ fn main() {
     set_var("LOOKUP_BITS", 19.to_string());
     let k: u32 = var("DEGREE").unwrap_or_else(|_| panic!("DEGREE not set")).parse().unwrap();
 
-    let data = fs::read_to_string("./data/matrix-wrong.in").expect("Unable to read file");
-    // let data = fs::read_to_string("./data/matrix.in").expect("Unable to read file");
+    // let data = fs::read_to_string("./data/matrix-wrong.in").expect("Unable to read file");
+    let data = fs::read_to_string("./data/matrix.in").expect("Unable to read file");
     let input: CircuitInput = serde_json::from_str(&data).expect("JSON was not well-formatted");
 
     let circuit = two_phase_svd_verif(RlcThreadBuilder::<Fr>::mock(), input);
