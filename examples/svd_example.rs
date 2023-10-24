@@ -283,12 +283,13 @@ pub fn two_phase_svd_verif<F: ScalarField>(
     let prover = builder.witness_gen_only();
     let ctx = builder.gate_builder.main(0);
 
-    const PRECISION_BITS: u32 = 32;
+    const PRECISION_BITS: u32 = 63;
     let degree: usize = var("DEGREE").unwrap_or_else(|_| panic!("DEGREE not set")).parse().unwrap();
     let lookup_bits: usize =
         var("LOOKUP_BITS").unwrap_or_else(|_| panic!("LOOKUP_BITS not set")).parse().unwrap();
 
     assert!(degree > lookup_bits, "DEGREE should be more than LOOKUP_BITS");
+
     let fpchip = FixedPointChip::<F, PRECISION_BITS>::default(lookup_bits);
     let range = fpchip.range_gate();
 

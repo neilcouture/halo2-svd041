@@ -5,6 +5,7 @@ use halo2_base::gates::{GateChip, RangeChip};
 use halo2_base::utils::BigPrimeField;
 use halo2_base::AssignedValue;
 use halo2_base::Context;
+use num_bigint::BigUint;
 use zk_fixed_point_chip::gadget::fixed_point::{FixedPointChip, FixedPointInstructions};
 
 use super::matrix::*;
@@ -46,9 +47,9 @@ pub fn check_svd_phase0<F: BigPrimeField, const PRECISION_BITS: u32>(
 
     // check that the entries of u, v correspond to real numbers in the interval (-1.0,1.0) upto an error of 2^-PRECISION_BITS
     // unit_bnd_q = quantization of 1+2^-PRECISION_BITS
-    let unit_bnd_q = 2u64.pow(PRECISION_BITS) + 1;
-    check_mat_entries_bounded(ctx, &range, &u.matrix, unit_bnd_q);
-    check_mat_entries_bounded(ctx, &range, &v.matrix, unit_bnd_q);
+    let unit_bnd_q = BigUint::from(2u64.pow(PRECISION_BITS) + 1);
+    check_mat_entries_bounded(ctx, &range, &u.matrix, &unit_bnd_q);
+    check_mat_entries_bounded(ctx, &range, &v.matrix, &unit_bnd_q);
 
     // Lets define the transpose matrix of u and v
     let u_t: ZkMatrix<F, PRECISION_BITS> = ZkMatrix::transpose_matrix(&u);
@@ -58,18 +59,18 @@ pub fn check_svd_phase0<F: BigPrimeField, const PRECISION_BITS: u32>(
     let m_times_vt: Vec<Vec<AssignedValue<F>>> = honest_prover_mat_mul(ctx, &m.matrix, &v_t.matrix);
 
     // define the doubly scaled tolerance
-    let tol_scale = (tol * (2u128.pow(2 * PRECISION_BITS) as f64)).round() as u64;
+    let tol_scale = BigUint::from((tol * (2u128.pow(2 * PRECISION_BITS) as f64)).round() as u128);
 
-    check_mat_diff(ctx, &range, &u_times_d, &m_times_vt, tol_scale);
+    check_mat_diff(ctx, &range, &u_times_d, &m_times_vt, &tol_scale);
 
     let quant = F::from(2u64.pow(PRECISION_BITS));
     let quant_square = ctx.load_constant(quant * quant);
 
     let u_times_ut = honest_prover_mat_mul(ctx, &u.matrix, &u_t.matrix);
-    check_mat_id(ctx, &range, &u_times_ut, &quant_square, tol_scale);
+    check_mat_id(ctx, &range, &u_times_ut, &quant_square, &tol_scale);
 
     let v_times_vt = honest_prover_mat_mul(ctx, &v.matrix, &v_t.matrix);
-    check_mat_id(ctx, &range, &v_times_vt, &quant_square, tol_scale);
+    check_mat_id(ctx, &range, &v_times_vt, &quant_square, &tol_scale);
 
     return (u_t, v_t, m_times_vt, u_times_ut, v_times_vt);
 }

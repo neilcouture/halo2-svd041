@@ -2,12 +2,13 @@
 #![allow(dead_code)]
 // #[allow(unused_imports)]
 use halo2_base::gates::{GateChip, GateInstructions, RangeChip, RangeInstructions};
-use halo2_base::utils::BigPrimeField;
+use halo2_base::utils::{biguint_to_fe, BigPrimeField};
 use halo2_base::{AssignedValue, QuantumCell};
 use halo2_base::{
     Context,
     QuantumCell::{Constant, Existing},
 };
+use num_bigint::BigUint;
 use poseidon::PoseidonChip;
 use zk_fixed_point_chip::gadget::fixed_point::{FixedPointChip, FixedPointInstructions};
 
@@ -406,12 +407,12 @@ pub fn check_abs_less_than<F: BigPrimeField>(
     ctx: &mut Context<F>,
     range: &RangeChip<F>,
     x: AssignedValue<F>,
-    bnd: u64,
+    bnd: &BigUint,
 ) {
-    assert!(bnd < 2u64.pow(63));
-    let new_bnd = 2 * bnd - 1;
-    let translated_x = range.gate.add(ctx, x, Constant(F::from(bnd - 1)));
-    range.check_less_than_safe(ctx, translated_x, new_bnd);
+    let new_bnd = BigUint::from(2u32) * bnd - BigUint::from(1u32);
+    let translated_x =
+        range.gate.add(ctx, x, Constant(biguint_to_fe(&(bnd - BigUint::from(1u32)))));
+    range.check_big_less_than_safe(ctx, translated_x, new_bnd);
 }
 
 /// Takes as two matrices `a` and `b` as input and checks that `|a[i][j] - b[i][j]| < tol` for each `i,j`
@@ -423,7 +424,7 @@ pub fn check_mat_diff<F: BigPrimeField>(
     range: &RangeChip<F>,
     a: &Vec<Vec<AssignedValue<F>>>,
     b: &Vec<Vec<AssignedValue<F>>>,
-    tol: u64,
+    tol: &BigUint,
 ) {
     assert_eq!(a.len(), b.len());
     assert_eq!(a[0].len(), b[0].len());
@@ -443,7 +444,7 @@ pub fn check_mat_id<F: BigPrimeField>(
     range: &RangeChip<F>,
     a: &Vec<Vec<AssignedValue<F>>>,
     scalar_id: &AssignedValue<F>,
-    tol: u64,
+    tol: &BigUint,
 ) {
     let mut b: Vec<Vec<AssignedValue<F>>> = Vec::new();
     let zero = ctx.load_constant(F::zero());
@@ -469,11 +470,11 @@ pub fn check_mat_entries_bounded<F: BigPrimeField>(
     ctx: &mut Context<F>,
     range: &RangeChip<F>,
     a: &Vec<Vec<AssignedValue<F>>>,
-    bnd: u64,
+    bnd: &BigUint,
 ) {
     for i in 0..a.len() {
         for j in 0..a[0].len() {
-            check_abs_less_than(ctx, &range, a[i][j], bnd);
+            check_abs_less_than(ctx, &range, a[i][j], &bnd);
         }
     }
 }
