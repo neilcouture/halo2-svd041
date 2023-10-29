@@ -300,9 +300,13 @@ pub fn two_phase_svd_verif<F: ScalarField>(
     let d = input.d;
 
     // load in the circuit
+    // m can be rectangular, say N X M matrix
     let m: ZkMatrix<F, PRECISION_BITS> = ZkMatrix::new(ctx, &fpchip, &m);
+    // u will be N X N matrix
     let u: ZkMatrix<F, PRECISION_BITS> = ZkMatrix::new(ctx, &fpchip, &u);
+    // v will be M X M matrix
     let v: ZkMatrix<F, PRECISION_BITS> = ZkMatrix::new(ctx, &fpchip, &v);
+    // numpy gives d of length = min{N, M}
     let d: ZkVector<F, PRECISION_BITS> = ZkVector::new(ctx, &fpchip, &d);
 
     let tol = 1e-5;

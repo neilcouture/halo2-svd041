@@ -9,8 +9,9 @@ use num_bigint::BigUint;
 use zk_fixed_point_chip::gadget::fixed_point::{FixedPointChip, FixedPointInstructions};
 
 use super::matrix::*;
+use std::cmp;
 
-/// Given matrices `m`, `u`, `v` and a vector `d` in fixed point representation with `fpchip`, performs the first part of checks that the SVD of `m = u*d*v` where the vector `d` is viewed as a diagonal matrix;
+/// Given matrices `m` (`N X M` dimension), `u` (`N X N` dimension), `v` (`M X M` dimension) and a vector `d` (`min{N, M}` dimension) in fixed point representation with `fpchip`, performs the first part of checks that the SVD of `m = u*d*v` where the vector `d` is viewed as a diagonal matrix;
 /// `u` and `v` are unitraries and `d` is a positive decreasing vector of singular values;
 ///
 /// Also takes as input a tolerance level `tol` given as a floating point number
@@ -36,6 +37,20 @@ pub fn check_svd_phase0<F: BigPrimeField, const PRECISION_BITS: u32>(
     Vec<Vec<AssignedValue<F>>>,
     Vec<Vec<AssignedValue<F>>>,
 ) {
+    #![allow(non_snake_case)]
+    assert_eq!(m.num_rows, u.num_rows);
+    assert_eq!(m.num_col, v.num_rows);
+
+    let N = m.num_rows;
+    // #[allow(non_snake_case)]
+    let M = m.num_col;
+    // #[allow(non_snake_case)]
+    let minNM = cmp::min(N, M);
+    // unitaries are square
+    assert_eq!(u.num_rows, u.num_col);
+    assert_eq!(v.num_rows, v.num_col);
+    assert_eq!(minNM, d.v.len());
+
     let range: &RangeChip<F> = fpchip.range_gate();
     let gate: &GateChip<F> = fpchip.gate();
 
@@ -55,7 +70,20 @@ pub fn check_svd_phase0<F: BigPrimeField, const PRECISION_BITS: u32>(
     let u_t: ZkMatrix<F, PRECISION_BITS> = ZkMatrix::transpose_matrix(&u);
     let v_t: ZkMatrix<F, PRECISION_BITS> = ZkMatrix::transpose_matrix(&v);
 
-    let u_times_d: Vec<Vec<AssignedValue<F>>> = mat_times_diag_mat(ctx, gate, &u.matrix, &d.v);
+    // if-else to make sure this matrix is N X M
+    let u_times_d: Vec<Vec<AssignedValue<F>>> = if minNM == M {
+        mat_times_diag_mat(ctx, gate, &u.matrix, &d.v)
+    } else {
+        // if N < M, then you need to pad by zeroes and u_times_d should be [UD; 0] where 0 is N X (M-N) matrix of zeroes
+        let zero = ctx.load_constant(F::zero());
+        let mut u_times_d = mat_times_diag_mat(ctx, gate, &u.matrix, &d.v);
+        for row in &mut u_times_d {
+            for _ in N..M {
+                row.push(zero);
+            }
+        }
+        u_times_d
+    };
     let m_times_vt: Vec<Vec<AssignedValue<F>>> = honest_prover_mat_mul(ctx, &m.matrix, &v_t.matrix);
 
     // define the doubly scaled tolerance

@@ -418,7 +418,7 @@ pub fn check_abs_less_than<F: BigPrimeField>(
 /// Takes as two matrices `a` and `b` as input and checks that `|a[i][j] - b[i][j]| < tol` for each `i,j`
 /// according to the absolute value check in `check_abs_less_than`
 ///
-/// Assumes matrix `a` and `b` are well defined matrices (all rows have the same size) and asserts (outside of circuit) that they can be multiplied
+/// Assumes matrix `a` and `b` are well defined matrices (all rows have the same size) and asserts (outside of circuit) that they can be compared
 pub fn check_mat_diff<F: BigPrimeField>(
     ctx: &mut Context<F>,
     range: &RangeChip<F>,
@@ -464,6 +464,8 @@ pub fn check_mat_id<F: BigPrimeField>(
 }
 
 /// Given a matrix `a` in the fixed point representation, checks that all of its entries are less in absolute value than some bound `bnd`
+///
+/// Assumes matrix `a` is well formed (all rows have the same size)
 ///
 /// COMMENT- for our specific use case- to make sure that unitaries are in (-1,1), it might be better to use range_check based checks
 pub fn check_mat_entries_bounded<F: BigPrimeField>(
@@ -579,10 +581,15 @@ pub fn field_mat_vec_mul<F: BigPrimeField>(
     return y;
 }
 
-/// Multiplies matrix `a` by a diagonal matrix represented as a vector `v` in the zk-circuit and returns the constrained output `a*v`
+/// Multiplies matrix `a` by a diagonal matrix represented as a vector `v` in the zk-circuit and returns the constrained output `a*Diag(v)`
 /// -- all assuming `a` and `v` are field elements, (and not fixed point encoded)
 ///
-/// Assumes matrix `a` is well defined (rows are equal size) and asserts (outside circuit) `a` can be multiplied to `v`
+/// Assumes matrix `a` is well defined (rows are equal size)
+///
+/// If dimension of `a` is `N X K` and `v` is length `M`, then multiplication is carried out as long as `K >= M`
+///
+/// In case `K > M`, multiplication result is actually the `N X M` matrix given by `a*[Diag(v) 0]^T` where 0 is the `(M X (K-M))` matrix of all zeroes;
+/// this choice allows us to handle one of the cases in the SVD check
 ///
 /// #CONSTRAINTS = N^2
 pub fn mat_times_diag_mat<F: BigPrimeField>(
@@ -591,12 +598,12 @@ pub fn mat_times_diag_mat<F: BigPrimeField>(
     a: &Vec<Vec<AssignedValue<F>>>,
     v: &Vec<AssignedValue<F>>,
 ) -> Vec<Vec<AssignedValue<F>>> {
-    assert_eq!(a[0].len(), v.len());
+    assert!(v.len() <= a[0].len());
     let mut m: Vec<Vec<AssignedValue<F>>> = Vec::new();
     // #CONSTRAINTS = N^2
     for i in 0..a.len() {
         let mut new_row: Vec<AssignedValue<F>> = Vec::new();
-        for j in 0..a[0].len() {
+        for j in 0..v.len() {
             let prod = gate.mul(ctx, a[i][j], v[j]);
             new_row.push(prod);
         }
