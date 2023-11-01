@@ -21,6 +21,10 @@ if __name__ == "__main__":
 
     MAX_ELEM = 10
     mat_ran = np.random.uniform(-MAX_ELEM, MAX_ELEM, size=(N, M))
+    # Inf norm
+    norm = np.linalg.norm(mat_ran, ord=2)
+    # rescale matrix so that ||mat||_inf \in (1,100)
+    mat_ran = mat_ran / norm * np.random.uniform(1, 100)
 
     U, D, V = lin.svd(mat_ran)
     mat_ran = mat_ran.tolist()
@@ -39,7 +43,7 @@ if __name__ == "__main__":
     # change m to be wrong
     rand_i = np.random.randint(N)
     rand_j = np.random.randint(M)
-    mat_ran[rand_i][rand_j] += 1e-3
+    mat_ran[rand_i][rand_j] += 1e-7
     dict_svd = {"m": mat_ran, "u": U, "d": D, "v": V}
 
     json_file_path = "./data/matrix-wrong.in"

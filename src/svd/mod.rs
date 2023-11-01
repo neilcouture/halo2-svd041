@@ -11,10 +11,15 @@ use zk_fixed_point_chip::gadget::fixed_point::{FixedPointChip, FixedPointInstruc
 use super::matrix::*;
 use std::cmp;
 
-/// Given matrices `m` (`N X M` dimension), `u` (`N X N` dimension), `v` (`M X M` dimension) and a vector `d` (`min{N, M}` dimension) in fixed point representation with `fpchip`, performs the first part of checks that the SVD of `m = u*d*v` where the vector `d` is viewed as a diagonal matrix;
+/// Given matrices `m` (`N X M` dimension), `u` (`N X N` dimension), `v` (`M X M` dimension) and
+/// a vector `d` (`min{N, M}` dimension) in fixed point representation with `fpchip`, performs the first part
+/// of checks that the SVD of `m = u*d*v` where the vector `d` is viewed as a diagonal matrix;
+///
 /// `u` and `v` are unitraries and `d` is a positive decreasing vector of singular values;
 ///
-/// Also takes as input a tolerance level `tol` given as a floating point number
+/// Also takes as input tolerance levels `err_svd` and `err_u`, which determine the error up to which these matrices are checked (see error analysis notes)
+///
+/// `max_bits_d` can be set to be anything <= PRECISION_BITS; it is used to make sure no overflows occur while multiplying
 ///
 /// Must call `check_svd_phase1` function following this function in the second phase to complete the SVD check
 ///
@@ -28,7 +33,8 @@ pub fn check_svd_phase0<F: BigPrimeField, const PRECISION_BITS: u32>(
     u: &ZkMatrix<F, PRECISION_BITS>,
     v: &ZkMatrix<F, PRECISION_BITS>,
     d: &ZkVector<F, PRECISION_BITS>,
-    tol: f64,
+    err_svd: f64,
+    err_u: f64,
     max_bits_d: u32,
 ) -> (
     ZkMatrix<F, PRECISION_BITS>,
@@ -86,19 +92,22 @@ pub fn check_svd_phase0<F: BigPrimeField, const PRECISION_BITS: u32>(
     };
     let m_times_vt: Vec<Vec<AssignedValue<F>>> = honest_prover_mat_mul(ctx, &m.matrix, &v_t.matrix);
 
-    // define the doubly scaled tolerance
-    let tol_scale = BigUint::from((tol * (2u128.pow(2 * PRECISION_BITS) as f64)).round() as u128);
+    // define the doubly scaled errors
+    let err_svd_scale =
+        BigUint::from((err_svd * (2u128.pow(2 * PRECISION_BITS) as f64)).round() as u128);
+    let err_u_scale =
+        BigUint::from((err_u * (2u128.pow(2 * PRECISION_BITS) as f64)).round() as u128);
 
-    check_mat_diff(ctx, &range, &u_times_d, &m_times_vt, &tol_scale);
+    check_mat_diff(ctx, &range, &u_times_d, &m_times_vt, &err_svd_scale);
 
     let quant = F::from(2u64.pow(PRECISION_BITS));
     let quant_square = ctx.load_constant(quant * quant);
 
     let u_times_ut = honest_prover_mat_mul(ctx, &u.matrix, &u_t.matrix);
-    check_mat_id(ctx, &range, &u_times_ut, &quant_square, &tol_scale);
+    check_mat_id(ctx, &range, &u_times_ut, &quant_square, &err_u_scale);
 
     let v_times_vt = honest_prover_mat_mul(ctx, &v.matrix, &v_t.matrix);
-    check_mat_id(ctx, &range, &v_times_vt, &quant_square, &tol_scale);
+    check_mat_id(ctx, &range, &v_times_vt, &quant_square, &err_u_scale);
 
     return (u_t, v_t, m_times_vt, u_times_ut, v_times_vt);
 }
@@ -129,4 +138,23 @@ pub fn check_svd_phase1<F: BigPrimeField, const PRECISION_BITS: u32>(
     ZkMatrix::verify_mul(ctx, &fpchip, &u, &u_t, &u_times_ut, &init_rand);
     ZkMatrix::verify_mul(ctx, &fpchip, &v, &v_t, &v_times_vt, &init_rand);
     // println!("Phase1 success");
+}
+
+/// Calculates `err_svd` and `err_u` from `eps_svd` and `eps_u` -- see Eq. 21, 22, and 23 of notes on error analysis for an explanation
+///
+/// `p` is the PRECISION_BITS for the fixed point chip
+///
+/// `size` is the size of the matrices for which the outputs are to be used
+///
+/// `max_norm` is the maximum operator norm for which the outputs are to be used
+///
+/// `eps_svd` and `eps_u` are the error parameters defined in the error analysis notes
+pub fn err_calc(p: u32, size: usize, max_norm: f64, eps_svd: f64, eps_u: f64) -> (f64, f64) {
+    let precision = 2.0_f64.powf(-1.0 * (p as f64 + 1.0));
+    let err_svd = precision * (size as f64) * (1.0 + max_norm + precision)
+        + (size as f64) * max_norm * precision
+        + (1.0 + eps_u).powf(0.5) * (max_norm + eps_svd) * eps_u
+        + (1.0 + eps_u).powf(0.5) * eps_svd;
+    let err_u = eps_u + precision * (size as f64) * (2.0 * (1.0 + eps_u) + precision);
+    return (err_svd, err_u);
 }

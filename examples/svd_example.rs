@@ -39,6 +39,7 @@ use axiom_eth::rlp::{
 use halo2_svd::matrix::*;
 use halo2_svd::svd::*;
 use rand::{rngs::StdRng, SeedableRng};
+use std::cmp;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CircuitInput {
@@ -283,7 +284,7 @@ pub fn two_phase_svd_verif<F: ScalarField>(
     let prover = builder.witness_gen_only();
     let ctx = builder.gate_builder.main(0);
 
-    const PRECISION_BITS: u32 = 63;
+    const PRECISION_BITS: u32 = 42;
     let degree: usize = var("DEGREE").unwrap_or_else(|_| panic!("DEGREE not set")).parse().unwrap();
     let lookup_bits: usize =
         var("LOOKUP_BITS").unwrap_or_else(|_| panic!("LOOKUP_BITS not set")).parse().unwrap();
@@ -309,13 +310,22 @@ pub fn two_phase_svd_verif<F: ScalarField>(
     // numpy gives d of length = min{N, M}
     let d: ZkVector<F, PRECISION_BITS> = ZkVector::new(ctx, &fpchip, &d);
 
-    let tol = 1e-5;
+    // NOTE: 2^-32 = 2.3e-10
+    // 1e-12 error estimated for matrices with operator norm < 100 and size < 1000
+    // multiplying this by 100 to be on the safer side
+    const EPS_SVD: f64 = 1e-10;
+    // theoretical analysis indicates this can be as small as 1e-13
+    const EPS_U: f64 = 1e-10;
+    const MAX_NORM: f64 = 100.0;
+    let max_dim = cmp::max(m.num_rows, m.num_col);
+
+    let (err_svd, err_u) = err_calc(PRECISION_BITS, max_dim, MAX_NORM, EPS_SVD, EPS_U);
 
     let _chip = RlpChip::new(&range, None);
     // let witness = chip.decompose_rlp_field_phase0(ctx, inputs, max_len);
 
     let (u_t, v_t, m_times_vt, u_times_ut, v_times_vt) =
-        check_svd_phase0(ctx, &fpchip, &m, &u, &v, &d, tol, 30);
+        check_svd_phase0(ctx, &fpchip, &m, &u, &v, &d, err_svd, err_u, 30);
 
     // copied from rlp_string_circuit in axiom-eth> src> rlp> tests
     let synthesize_phase1 = move |b: &mut RlcThreadBuilder<F>, rlc: &RlcChip<F>| {
@@ -373,6 +383,6 @@ fn main() {
 }
 
 // to create input file use
-// python3.9 input-creator.py <SIZE>
+// python3.9 input-creator.py <SIZE> <SIZE>
 // to run use:
 // cargo run --example svd_example
