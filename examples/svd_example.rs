@@ -285,8 +285,9 @@ pub fn two_phase_svd_verif<F: ScalarField>(
     let prover = builder.witness_gen_only();
     let ctx = builder.gate_builder.main(0);
 
+    // see [Error Analysis for SVD.pdf] for how the following parameters should be chosen
     // NOTE: 2^-32 = 2.3e-10
-    // 1e-12 error estimated for matrices with operator norm <= 100 and size <= 1000
+    // 1e-12 error estimated for matrices with operator norm <= 100 and size <= 1000 (using svd_error.py)
     // multiplying this by 100 to be on the safer side
     const EPS_SVD: f64 = 1e-10;
     // theoretical analysis indicates this can be as small as 1e-13
