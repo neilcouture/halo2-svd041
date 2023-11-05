@@ -16,7 +16,7 @@ A simple struct which holds a fixed-point circuit encoded real matrix and its di
 
 ### Matrix multiplication
 
-In order to multiply two fixed-point chip encoded matrices `A` and `B` in a zk-circuit, we use Freivald's algorithm to simply check that a matrix `C` claimed to be the product `AB` by the prover is indeed correct. This allows us to perform matrix multiplication with only `O(N^2)` operations in circuit (Note `O(N^2)` is linear in the size of the matrix).
+In order to multiply two fixed-point chip encoded matrices `A` and `B` in a zk-circuit, we use Freivald's algorithm (implemented using a Schwartz-Zippel lemma based random vector) to simply check that a matrix `C` claimed to be the product `AB` by the prover is indeed correct. This allows us to perform matrix multiplication with only `O(N^2)` operations in circuit (Note `O(N^2)` is linear in the size of the matrix).
 
 To multiply two ZkMatrix `a` and `b`, in the first phase of the circuit (see [Challenge API](https://hackmd.io/@axiom/SJw3p-qX3))
 
@@ -84,7 +84,7 @@ We need to use a fork of the axiom-eth repository for this. For this reason, you
 ## Contributors
 
 - [Ashutosh Marwah](https://github.com/goforashutosh)
-- [Guillaume Remy](https://github.com/gremy92)
+- [Guillaume Remy](https://github.com/GuillaumeRemy92)
 - Zhengxun Wu
 
 ## Acknowledgments
