@@ -4,6 +4,8 @@ This repository provides functions for efficiently proving the singular value de
 
 ## Main functionalities
 
+Real numbers are encoded and manipulated using a [fork](https://github.com/goforashutosh/ZKFixedPointChip) of [ZKFixedPointChip](https://github.com/DCMMC/ZKFixedPointChip), which improves the efficiency of some operations (see [this](https://github.com/DCMMC/ZKFixedPointChip/pull/1) PR).
+
 ### struct ZkVector
 
 A simple struct which holds a fixed-point circuit encoded real vector with support for basic functions for linear algebra including `inner_product`, `norm`, and `dist`.
@@ -51,6 +53,8 @@ The number of cells required for SVD depends on the `LOOKUP_BITS` and the `PRECI
 
 ## To Run
 
+### With Mock Prover
+
 To run the example file, first generate the input files using Python as
 
 ```
@@ -73,9 +77,9 @@ cargo run --example svd_example -- <FILE>
 
 where `<FILE>` is either `matrix` or `matrix-wrong`. SVD should verify on `matrix` but fail on `matrix-wrong`.
 
-<!-- Design
-Dependency- fork of zk fixed point chip -->
-<!-- - full- proof fork -->
+### Real proof generation and verification
+
+We need to use a fork of the axiom-eth repository for this. For this reason, you need to switch to the branch `full-proof` of this repo to run proof generation and verification. Once there, you can simply use the above commands.
 
 ## Contributors
 
@@ -85,4 +89,4 @@ Dependency- fork of zk fixed point chip -->
 
 ## Acknowledgments
 
-This project was conducted as part of [Axiom Open Source Program](https://www.axiom.xyz/open-source). We are grateful to N. Feng, Y. Sun, and J. Wang for organizing it. It’s build on top of ZK circuit primitives provided by [Halo2](https://github.com/privacy-scaling-explorations/halo2) and Axiom’s [Halo2-lib](https://github.com/axiom-crypto/halo2-lib) and [Halo2-scaffold](https://github.com/axiom-crypto/halo2-scaffold).
+This project was conducted as part of [Axiom Open Source Program](https://www.axiom.xyz/open-source). We are grateful to N. Feng, Y. Sun, and J. Wang for organizing it. It’s build on top of ZK circuit primitives provided by [Halo2](https://github.com/privacy-scaling-explorations/halo2), Axiom’s [Halo2-lib](https://github.com/axiom-crypto/halo2-lib), [Halo2-scaffold](https://github.com/axiom-crypto/halo2-scaffold) and [ZKFixedPointChip](https://github.com/DCMMC/ZKFixedPointChip).
