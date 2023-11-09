@@ -287,6 +287,10 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
     ///
     /// `init_rand`:  is the starting randomness/ challenge value; should commit to
     /// *at least* the matrices `a, b, c_s`
+    ///
+    /// Since, this method only verifies field multiplication, it will not fail even if
+    /// `a` and `b` are incorrectly encoded. However, trying to rescale the result and use
+    /// it downstream might fail in this case.
     pub fn verify_mul(
         ctx: &mut Context<F>,
         fpchip: &FixedPointChip<F, PRECISION_BITS>,
@@ -337,6 +341,11 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
     /// Useful after matrix multiplication;
     ///
     /// Is costly- leads to ~94 (when lookup_bits =12) cells per element
+    ///
+    /// NOTE: Each of the entries of `c_s` need to be lesser than `2^(3*PRECISION_BITS)`
+    /// for the result to be correctly encoded. For rescaling after matrix multiplication,
+    /// best way to ensure this is to simply make sure that the matrices being multiplied are
+    /// appropriately bounded.
     pub fn rescale_matrix(
         ctx: &mut Context<F>,
         fpchip: &FixedPointChip<F, PRECISION_BITS>,

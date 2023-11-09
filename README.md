@@ -2,6 +2,8 @@
 
 This repository provides functions for efficiently proving the singular value decomposition (SVD) of a real valued matrix in a Halo2 circuit. In addition, it also provides functions for manipulating real valued matrices and vectors.
 
+See this [blog](https://hackmd.io/@SQko9rCYRT67XG7dx6zaRQ/r1cWTJEfT) for a description the algorithms used for this library.
+
 ## Main functionalities
 
 Real numbers are encoded and manipulated using a [fork](https://github.com/goforashutosh/ZKFixedPointChip) of [ZKFixedPointChip](https://github.com/DCMMC/ZKFixedPointChip), which improves the efficiency of some operations (see [this](https://github.com/DCMMC/ZKFixedPointChip/pull/1) PR).
@@ -16,7 +18,7 @@ A simple struct which holds a fixed-point circuit encoded real matrix and its di
 
 ### Matrix multiplication
 
-In order to multiply two fixed-point chip encoded matrices `A` and `B` in a zk-circuit, we use Freivald's algorithm (implemented using a Schwartz-Zippel lemma based random vector) to simply check that a matrix `C` claimed to be the product `AB` by the prover is indeed correct. This allows us to perform matrix multiplication with only `O(N^2)` operations in circuit (Note `O(N^2)` is linear in the size of the matrix).
+In order to multiply two fixed-point chip encoded matrices `A` and `B` in a zk-circuit, we use Freivalds' algorithm (implemented using a Schwartz-Zippel lemma based random vector) to simply check that a matrix `C` claimed to be the product `AB` by the prover is indeed correct. This allows us to perform matrix multiplication with only O($N^2$) operations in circuit (Note O$(N^2)$ is linear in the size of the matrix).
 
 To multiply two ZkMatrix `a` and `b`, in the first phase of the circuit (see [Challenge API](https://hackmd.io/@axiom/SJw3p-qX3))
 
@@ -37,11 +39,15 @@ ZkMatrix::verify_mul(ctx, fpchip, a, b, c_s, init_rand)
 
 where `init_rand` is `rlc.gamma()`.
 
-It should be noted that the `rescale_matrix` operation above is much costlier (`60N^2 to 90N^2` depending on the lookup table size) than `verify_mul` (`~(9N^2`) and should be avoided if possible.
+It should be noted that the `rescale_matrix` operation above is much costlier ($60N^2$ to $100N^2$ depending on the lookup table size; for precision greater than 32, this could be higher) than `verify_mul` (~$9N^2$) and should be avoided if possible.
+
+_NOTE: The fixed point chip does not check for overflows, so one needs to place some bounds on matrices `a` and `b` for their multiplication `c` above to be correct. These bounds are assumed to be enforced by the function or program calling this library._
 
 ### Singular value decomposition (SVD)
 
 Similar to matrix multiplication, instead of performing SVD in circuit, we simply verify it. For a matrix `a` (N X M matrix), to verify that claimed ZkMatrices `u` (N X N matrix) and `v` (M X M matrix), and a ZkVector `d` (min{N, M} long) are the SVD of `a`, i.e., `u` and `v` are orthogonal and `a = u*Diag(d)*v`, one can call `check_svd_phase0` in the first phase of the circuit and `check_svd_phase1` in the second phase of the circuit.
+
+_NOTE: Once again, because the fixed point chip does not check for overflows, one needs to place some bound on $\Vert a \Vert_2$. Specifically, it should be sufficient to ensure that $m \Vert a \Vert_2 < 2^P$. This bound is assumed to be enforced by the function or program calling this library._
 
 ## Error parameter choices
 
@@ -49,7 +55,7 @@ For the choice of error parameters for the `check_svd_phase0` function and its r
 
 ## Performance
 
-The number of cells required for SVD depends on the `LOOKUP_BITS` and the `PRECISION_BITS`. For `LOOKUP_BITS =19` and `PRECISION_BITS= 32`, the number of advice cells grow as `162N^2 = 135N^2 + 27N^2` (first phase + second phase) with `26N^2` lookup cells and for `LOOKUP_BITS =19` and `PRECISION_BITS= 63` the number of advice cells grows as `228N^2 = 201N^2 + 27N^2` (first phase + second phase) with `48N^2` lookup cells.
+The number of cells required for SVD depends on the `LOOKUP_BITS` and the `PRECISION_BITS`. For `LOOKUP_BITS =19` and `PRECISION_BITS= 32`, the number of advice cells grow as $162N^2 = 135N^2 + 27N^2$ (first phase + second phase) with $26N^2$ lookup cells and for `LOOKUP_BITS =19` and `PRECISION_BITS= 63` the number of advice cells grows as $228N^2 = 201N^2 + 27N^2$ (first phase + second phase) with $48N^2$ lookup cells.
 
 ## To Run
 

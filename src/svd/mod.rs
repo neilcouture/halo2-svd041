@@ -23,9 +23,11 @@ use std::cmp;
 ///
 /// Must call `check_svd_phase1` function following this function in the second phase to complete the SVD check
 ///
-/// Might silently fail if `m` is not correctly encoded according to the fixed representation of `fpchip`
-///
 /// The outputs are simply witnesses to be used for the corresponding variables in `check_svd_phase1`
+///
+/// NOTE: the fixed point chip does not check for overflows, one needs to place some bound on $\Vert a \Vert_2$.
+/// Specifically, it should be sufficient to ensure that $m \Vert a \Vert_2 < 2^P$.
+/// This bound is assumed to be enforced by the function or program calling this library
 pub fn check_svd_phase0<F: BigPrimeField, const PRECISION_BITS: u32>(
     ctx: &mut Context<F>,
     fpchip: &FixedPointChip<F, PRECISION_BITS>,
