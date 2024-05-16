@@ -78,7 +78,7 @@ for random rectangular matrices.
 Then, use
 
 ```
-cargo run --example svd_example_nh -- <FILE>
+cargo run --example svd_example -- <FILE>
 ```
 
 where `<FILE>` is either `matrix` or `matrix-wrong`. SVD should verify on `matrix` but fail on `matrix-wrong`.
