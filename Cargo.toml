@@ -35,7 +35,7 @@ ndarray = "0.15.6"
 linfa-datasets = { version = "0.7.0", features = ["diabetes", "winequality"] }
 num-traits = "0.2.18"
 
-# zk_fixed_point_chip = { path = "../ZKFixedPointChip041", version = "0.2.0" }
+# zk_fixed_point_chip = { path = "../ZKFixedPointChip041", version = "0.2.0" }  
 zk_fixed_point_chip = {git ="https://github.com/neilcouture/ZKFixedPointChip041", branch = "main"}
 chrono = "0.4.38"
 
