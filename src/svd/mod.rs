@@ -1,5 +1,7 @@
 // #![allow(warnings)]
 #![allow(dead_code)]
+
+
 // #[allow(unused_imports)]
 use halo2_base::gates::{GateChip, RangeChip};
 use halo2_base::utils::BigPrimeField;
@@ -83,7 +85,7 @@ pub fn check_svd_phase0<F: BigPrimeField, const PRECISION_BITS: u32>(
         mat_times_diag_mat(ctx, gate, &u.matrix, &d.v)
     } else {
         // if N < M, then you need to pad by zeroes and u_times_d should be [UD; 0] where 0 is N X (M-N) matrix of zeroes
-        let zero = ctx.load_constant(F::zero());
+        let zero = ctx.load_constant(F::ZERO);
         let mut u_times_d = mat_times_diag_mat(ctx, gate, &u.matrix, &d.v);
         for row in &mut u_times_d {
             for _ in N..M {
@@ -136,8 +138,11 @@ pub fn check_svd_phase1<F: BigPrimeField, const PRECISION_BITS: u32>(
     v_times_vt: &Vec<Vec<AssignedValue<F>>>,
     init_rand: &AssignedValue<F>,
 ) {
+    println!("{:?} check_svd_phase1::1", chrono::offset::Local::now());
     ZkMatrix::verify_mul(ctx, &fpchip, &m, &v_t, &m_times_vt, &init_rand);
+    println!("{:?} check_svd_phase1::2", chrono::offset::Local::now());
     ZkMatrix::verify_mul(ctx, &fpchip, &u, &u_t, &u_times_ut, &init_rand);
+    println!("{:?} check_svd_phase1::3", chrono::offset::Local::now());
     ZkMatrix::verify_mul(ctx, &fpchip, &v, &v_t, &v_times_vt, &init_rand);
     // println!("Phase1 success");
 }

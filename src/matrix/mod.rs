@@ -8,8 +8,9 @@ use halo2_base::{
     Context,
     QuantumCell::{Constant, Existing},
 };
+use halo2_base::poseidon::hasher::spec::OptimizedPoseidonSpec;
 use num_bigint::BigUint;
-use poseidon::PoseidonChip;
+use halo2_base::poseidon::PoseidonChip;
 use zk_fixed_point_chip::gadget::fixed_point::{FixedPointChip, FixedPointInstructions};
 
 #[derive(Clone)]
@@ -310,8 +311,8 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
         // v = (1, r, r^2, ..., r^(d-1)) where r = init_rand is the random challenge value
         let mut v: Vec<AssignedValue<F>> = Vec::new();
 
-        let one = ctx.load_witness(F::one());
-        gate.assert_is_const(ctx, &one, &F::one());
+        let one = ctx.load_witness(F::ONE);
+        gate.assert_is_const(ctx, &one, &F::ONE);
         v.push(one);
 
         for i in 1..d {
@@ -369,7 +370,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
         return Self { matrix: c, num_rows: num_rows, num_col: num_col };
     }
     /// hash all the matrices in the given list
-    pub fn hash_matrix_list(
+  /*  pub fn hash_matrix_list(
         ctx: &mut Context<F>,
         gate: &GateChip<F>,
         matrix_list: &Vec<Self>,
@@ -379,6 +380,11 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
         const RATE: usize = 2;
         const R_F: usize = 8;
         const R_P: usize = 57;
+
+        // builder.lookup_manager().clone();
+
+        let pos_config = OptimizedPoseidonSpec::<F, T, RATE>::new();
+        let range_chip = RangeChip::new(15);
 
         // MODE OF USE: we will update the poseidon chip with all the values and then extract one value
         let mut poseidon = PoseidonChip::<F, T, RATE>::new(ctx, R_F, R_P).unwrap();
@@ -390,7 +396,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
         let init_rand = poseidon.squeeze(ctx, gate).unwrap();
         // dbg!(init_rand.value());
         return init_rand;
-    }
+    } */
 
     /// Outputs the transpose matrix of a matrix `a`;
     ///
@@ -456,7 +462,7 @@ pub fn check_mat_id<F: BigPrimeField>(
     tol: &BigUint,
 ) {
     let mut b: Vec<Vec<AssignedValue<F>>> = Vec::new();
-    let zero = ctx.load_constant(F::zero());
+    let zero = ctx.load_constant(F::ZERO);
 
     for i in 0..a.len() {
         let mut row: Vec<AssignedValue<F>> = Vec::new();
@@ -515,7 +521,7 @@ pub fn field_mat_mul<F: BigPrimeField>(
     for i in 0..N {
         let mut row: Vec<F> = Vec::new();
         for j in 0..M {
-            let mut elem = F::zero();
+            let mut elem = F::ZERO;
             for k in 0..K {
                 elem += a[i][k].value().clone() * b[k][j].value().clone();
             }
