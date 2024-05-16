@@ -78,7 +78,7 @@ for random rectangular matrices.
 Then, use
 
 ```
-cargo run --example svd_example -- <FILE>
+cargo run --example svd_example_nh -- <FILE>
 ```
 
 where `<FILE>` is either `matrix` or `matrix-wrong`. SVD should verify on `matrix` but fail on `matrix-wrong`.
@@ -89,6 +89,7 @@ We need to use a fork of the axiom-eth repository for this. For this reason, you
 
 ## Contributors
 
+- [Neil Couture](https://github.com/neilcouture) Effort to compile with Halo2-lib version [0.4.1](https://github.com/axiom-crypto/halo2-lib/tree/v0.4.1)
 - [Ashutosh Marwah](https://github.com/goforashutosh)
 - [Guillaume Remy](https://github.com/GuillaumeRemy92)
 - Zhengxun Wu
