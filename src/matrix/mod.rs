@@ -1,5 +1,8 @@
 // #![allow(warnings)]
 #![allow(dead_code)]
+
+pub mod test_matrix;
+
 // #[allow(unused_imports)]
 use halo2_base::gates::{GateChip, GateInstructions, RangeChip, RangeInstructions};
 use halo2_base::utils::{biguint_to_fe, BigPrimeField};
@@ -240,7 +243,8 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
             for j in 0..num_col {
                 let elem = matrix[i][j];
                 let elem = fpchip.quantization(elem);
-                new_row.push(ctx.load_witness(elem));
+                let ee = ctx.load_witness(elem);
+                new_row.push(ee);
             }
             zkmatrix.push(new_row);
         }
@@ -555,7 +559,8 @@ pub fn honest_prover_mat_mul<F: BigPrimeField>(
         let mut new_row: Vec<AssignedValue<F>> = Vec::new();
         for j in 0..num_col {
             let elem = c_s[i][j];
-            new_row.push(ctx.load_witness(elem));
+            let vp = ctx.load_witness(elem);
+            new_row.push(vp);
         }
         assigned_c_s.push(new_row);
     }

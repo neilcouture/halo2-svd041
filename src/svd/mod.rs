@@ -138,11 +138,8 @@ pub fn check_svd_phase1<F: BigPrimeField, const PRECISION_BITS: u32>(
     v_times_vt: &Vec<Vec<AssignedValue<F>>>,
     init_rand: &AssignedValue<F>,
 ) {
-    println!("{:?} check_svd_phase1::1", chrono::offset::Local::now());
     ZkMatrix::verify_mul(ctx, &fpchip, &m, &v_t, &m_times_vt, &init_rand);
-    println!("{:?} check_svd_phase1::2", chrono::offset::Local::now());
     ZkMatrix::verify_mul(ctx, &fpchip, &u, &u_t, &u_times_ut, &init_rand);
-    println!("{:?} check_svd_phase1::3", chrono::offset::Local::now());
     ZkMatrix::verify_mul(ctx, &fpchip, &v, &v_t, &v_times_vt, &init_rand);
     // println!("Phase1 success");
 }
