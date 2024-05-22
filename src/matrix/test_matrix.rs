@@ -27,7 +27,7 @@ use serde::{Deserialize, Serialize};
 use std::env;
 use std::env::{set_var, var};
 use std::fs;
-use zk_fixed_point_chip::gadget::fixed_point::{FixedPointChip, FixedPointInstructions};
+use zk_fixed_point_chip::gadget::fixed_point041::{FixedPointChip041, FixedPointInstructions041};
 use chrono;
 use axiom_eth::rlc::{
     circuit::instructions::RlcCircuitInstructions,
@@ -37,20 +37,7 @@ use axiom_eth::rlc::{
     *,
 };
 use crate::matrix::*;
-use crate::svd::*;
-use rand::{rngs::StdRng, SeedableRng};
-use std::cmp;
-use std::fs::File;
-use std::io::{BufReader, BufWriter, Seek, Write};
-use axiom_eth::halo2_proofs::poly::commitment::Params;
-use halo2_base::gates::circuit::builder::BaseCircuitBuilder;
-use halo2_base::gates::circuit::{BaseCircuitParams, CircuitBuilderStage};
-use halo2_base::utils::testing::{check_proof, gen_proof};
-use halo2_proofs::plonk::Fixed;
-use zk_fixed_point_chip::scaffold::cmd::{Cli, SnarkCmd};
 
-//pub mod halo2_svd::utils;
-use crate::utils::executor::{RlcCircuit, RlcExecutor};
 
 /// simple tests to make sure zkvector is okay; can also be randomized
 
@@ -62,9 +49,10 @@ pub fn test_zkvector(
         var("LOOKUP_BITS").unwrap_or_else(|_| panic!("LOOKUP_BITS not set")).parse().unwrap();
     const PRECISION_BITS: u32 = 32;
     // fixed-point exp arithmetic
-    let fpchip = FixedPointChip::<Fr, PRECISION_BITS>::default(
-        lookup_bits, &builder.base);
+    let gate = builder.range_chip();
+    let mut fpchip = FixedPointChip041::<Fr, PRECISION_BITS>::new(lookup_bits);
 
+    fpchip.set_range_chip(&gate);
     let ctx : &mut Context<Fr> = builder.base.main(0);
 
     const N: usize = 5;
@@ -225,10 +213,10 @@ pub fn test_field_mat_times_vec(
     let lookup_bits =
         var("LOOKUP_BITS").unwrap_or_else(|_| panic!("LOOKUP_BITS not set")).parse().unwrap();
     const PRECISION_BITS: u32 = 32;
+    let gate = builder.range_chip();
     // fixed-point exp arithmetic
-    let fpchip = FixedPointChip::<Fr, PRECISION_BITS>::default(
-        lookup_bits, &builder.base);
-
+    let mut fpchip = FixedPointChip041::<Fr, PRECISION_BITS>::new( lookup_bits);
+    fpchip.set_range_chip(&gate);
     let ctx : &mut Context<Fr> = builder.base.main(0);
 
     const N: usize = 5;

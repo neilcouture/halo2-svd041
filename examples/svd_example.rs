@@ -31,7 +31,7 @@ use serde::{Deserialize, Serialize};
 use std::env;
 use std::env::{set_var, var};
 use std::fs;
-use zk_fixed_point_chip::gadget::fixed_point::{FixedPointChip, FixedPointInstructions};
+use zk_fixed_point_chip::gadget::fixed_point041::{FixedPointChip041, FixedPointInstructions041};
 use chrono;
 use axiom_eth::rlc::{
     circuit::instructions::RlcCircuitInstructions,
@@ -78,7 +78,7 @@ struct SVDExample<'a, F: ScalarField> where F: BigPrimeField {
     marker : PhantomData<F>,
 }
 struct SVDPayload<F: ScalarField> where F: BigPrimeField {
-    fpchip : FixedPointChip<F, 42>,
+
     u_t: ZkMatrix<F, PRECISION_BITS>,
     v_t: ZkMatrix<F, PRECISION_BITS>,
     m: ZkMatrix<F, PRECISION_BITS>,
@@ -93,15 +93,12 @@ impl<'a, F: ScalarField> RlcCircuitInstructions<F> for SVDExample<'a, F> where F
     fn virtual_assign_phase0(
         &self,
         builder: &mut RlcCircuitBuilder<F>,
-        _: &RangeChip<F>,
+        rc: &RangeChip<F>,
     ) -> Self::FirstPhasePayload {
 
         let degree: usize = var("DEGREE").unwrap_or_else(|_| panic!("DEGREE not set")).parse().unwrap();
         let lookup_bits: usize =
             var("LOOKUP_BITS").unwrap_or_else(|_| panic!("LOOKUP_BITS not set")).parse().unwrap();
-
-        let fpchip = FixedPointChip::<F, PRECISION_BITS>::default(
-            lookup_bits, &builder.base);
 
         let ctx : &mut Context<F> = builder.base.main(0);
 
@@ -121,13 +118,16 @@ impl<'a, F: ScalarField> RlcCircuitInstructions<F> for SVDExample<'a, F> where F
         assert!(degree > lookup_bits, "DEGREE should be more than LOOKUP_BITS");
 
         println!("{:?} do_zk_svd::2 ", chrono::offset::Local::now());
-        let range = fpchip.range_gate();
 
         // Import from the imput file the matrices of the svd, should satisfy m = u d v, the diagonal matrix is given as a vector
         let m = self.m.clone();
         let u = self.u.clone();
         let v = self.v.clone();
         let d = self.d.clone();
+
+
+        let mut fpchip = FixedPointChip041::<F, PRECISION_BITS>::new(lookup_bits);
+        fpchip.set_range_chip(rc);
 
         // load in the circuit
         // m can be rectangular, say N X M matrix
@@ -145,14 +145,13 @@ impl<'a, F: ScalarField> RlcCircuitInstructions<F> for SVDExample<'a, F> where F
         let (err_svd, err_u) = err_calc(PRECISION_BITS, max_dim, MAX_NORM, EPS_SVD, EPS_U);
         println!("{:?} do_zk_svd::4, m, u,v, d error calculated err_svd:{:?} err_u:{:?}",
                  chrono::offset::Local::now(), err_svd, err_u);
-        let fship = &fpchip;
+        //let fship = &fpchip;
 
         let mut ctx2 = ctx.clone();
         let (u_t, v_t, m_times_vt, u_times_ut, v_times_vt) =
             check_svd_phase0(&mut ctx2, &fpchip, &m, &u, &v, &d, err_svd, err_u, 30);
 
-
-        SVDPayload{fpchip, u_t, v_t, m, u, v, m_times_vt, u_times_ut, v_times_vt}
+        SVDPayload{u_t, v_t, m, u, v, m_times_vt, u_times_ut, v_times_vt}
     }
 
     fn virtual_assign_phase1(
@@ -161,10 +160,12 @@ impl<'a, F: ScalarField> RlcCircuitInstructions<F> for SVDExample<'a, F> where F
         rlc: &RlcChip<F>,
         payload: Self::FirstPhasePayload,
     ) {
+        let lookup_bits: usize =
+            var("LOOKUP_BITS").unwrap_or_else(|_| panic!("LOOKUP_BITS not set")).parse().unwrap();
         // old fpchip being moved
-        let fpchip2 = payload.fpchip;
+        let mut fpchip2 = FixedPointChip041::<F, PRECISION_BITS>::new(lookup_bits);
+        fpchip2.set_range_chip(range);
 
-        //let range2 = fpchip2.range_gate();
         let chip = RlpChip::new(&range, Some(rlc));
 
         // closure captures `witness` variable
@@ -228,6 +229,11 @@ pub fn do_zk_svd(
 ) -> Result<(), Error> {
 
     let pd = PhantomData::<Fr>::default();
+
+    // fixme hardcodede lookup b its
+    let lookup_bits: usize =
+        var("LOOKUP_BITS").unwrap_or_else(|_| panic!("LOOKUP_BITS not set")).parse().unwrap();
+
     let svde: SVDExample<Fr> = SVDExample{m:&input.m, u:&input.u, v:&input.v, d:&input.d, marker:pd};
     println!("{:?} do_zk_svd::5, SVDExample  created... ", chrono::offset::Local::now());
     let mut rng = StdRng::from_seed([0u8; 32]);
@@ -266,7 +272,7 @@ pub fn do_zk_svd(
 
     let vv : Vec<Vec<Fr>> = vec![vec![]];
     let  circuitm = rlc_svd_circuit(CircuitBuilderStage::Mock, svde);
-    let r = MockProver::run(K as u32, &circuitm, vv);
+    let r = MockProver::run(K as u32, &circuitm, vec![vec![]]);
 
     let svde: SVDExample<Fr> = SVDExample{m:&input.m, u:&input.u, v:&input.v, d:&input.d, marker:pd};
     let  circuit = rlc_svd_circuit(CircuitBuilderStage::Keygen, svde);
@@ -282,6 +288,7 @@ pub fn do_zk_svd(
     println!();
     println!("{:?} ==============STARTING PROOF GEN===================", chrono::offset::Local::now());
     let pd = PhantomData::<Fr>::default();
+
     let svde2 = SVDExample{m:&input.m, u:&input.u, v:&input.v, d:&input.d, marker:pd};
     let circuit = rlc_svd_circuit(CircuitBuilderStage::Prover, svde2);
     circuit.0.builder.borrow_mut().set_break_points(break_points);

@@ -8,7 +8,7 @@ use halo2_base::utils::BigPrimeField;
 use halo2_base::AssignedValue;
 use halo2_base::Context;
 use num_bigint::BigUint;
-use zk_fixed_point_chip::gadget::fixed_point::{FixedPointChip, FixedPointInstructions};
+use zk_fixed_point_chip::gadget::fixed_point041::{FixedPointChip041, FixedPointInstructions041};
 
 use super::matrix::*;
 use std::cmp;
@@ -32,7 +32,7 @@ use std::cmp;
 /// This bound is assumed to be enforced by the function or program calling this library
 pub fn check_svd_phase0<F: BigPrimeField, const PRECISION_BITS: u32>(
     ctx: &mut Context<F>,
-    fpchip: &FixedPointChip<F, PRECISION_BITS>,
+    fpchip: &FixedPointChip041<F, PRECISION_BITS>,
     m: &ZkMatrix<F, PRECISION_BITS>,
     u: &ZkMatrix<F, PRECISION_BITS>,
     v: &ZkMatrix<F, PRECISION_BITS>,
@@ -66,9 +66,9 @@ pub fn check_svd_phase0<F: BigPrimeField, const PRECISION_BITS: u32>(
 
     // check the entries of d have at most max_bits_d + precision_bits
     let max_bits = (max_bits_d + PRECISION_BITS) as usize;
-    d.entries_less_than(ctx, &fpchip, max_bits);
+    d.entries_less_than(ctx, fpchip, max_bits);
     // make sure d is in decreasing order
-    d.entries_in_desc_order(ctx, &fpchip, max_bits);
+    d.entries_in_desc_order(ctx, fpchip, max_bits);
 
     // check that the entries of u, v correspond to real numbers in the interval (-1.0,1.0) upto an error of 2^-PRECISION_BITS
     // unit_bnd_q = quantization of 1+2^-PRECISION_BITS
@@ -127,7 +127,7 @@ pub fn check_svd_phase0<F: BigPrimeField, const PRECISION_BITS: u32>(
 /// First phase might silently fail if `m` is not correctly encoded according to the fixed representation of `fpchip`
 pub fn check_svd_phase1<F: BigPrimeField, const PRECISION_BITS: u32>(
     ctx: &mut Context<F>,
-    fpchip: &FixedPointChip<F, PRECISION_BITS>,
+    fpchip: &FixedPointChip041<F, PRECISION_BITS>,
     m: &ZkMatrix<F, PRECISION_BITS>,
     u: &ZkMatrix<F, PRECISION_BITS>,
     v: &ZkMatrix<F, PRECISION_BITS>,

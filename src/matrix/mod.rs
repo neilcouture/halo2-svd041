@@ -14,7 +14,7 @@ use halo2_base::{
 use halo2_base::poseidon::hasher::spec::OptimizedPoseidonSpec;
 use num_bigint::BigUint;
 use halo2_base::poseidon::PoseidonChip;
-use zk_fixed_point_chip::gadget::fixed_point::{FixedPointChip, FixedPointInstructions};
+use zk_fixed_point_chip::gadget::fixed_point041::{FixedPointChip041, FixedPointInstructions041};
 
 #[derive(Clone)]
 /// ZKVector is always associated to a fixed point chip for which we need [PRECISION_BITS]
@@ -28,7 +28,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkVector<F, PRECISION_BITS> {
     /// Does not constrain the output in anyway
     pub fn new(
         ctx: &mut Context<F>,
-        fpchip: &FixedPointChip<F, PRECISION_BITS>,
+        fpchip: &FixedPointChip041<F, PRECISION_BITS>,
         v: &Vec<f64>,
     ) -> Self {
         let mut zk_v: Vec<AssignedValue<F>> = Vec::new();
@@ -47,7 +47,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkVector<F, PRECISION_BITS> {
     /// Dequantizes the vector and returns it;
     ///
     /// Action is not constrained in anyway
-    pub fn dequantize(&self, fpchip: &FixedPointChip<F, PRECISION_BITS>) -> Vec<f64> {
+    pub fn dequantize(&self, fpchip: &FixedPointChip041<F, PRECISION_BITS>) -> Vec<f64> {
         let mut dq_v: Vec<f64> = Vec::new();
         for elem in &self.v {
             dq_v.push(fpchip.dequantization(*elem.value()));
@@ -58,7 +58,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkVector<F, PRECISION_BITS> {
     /// Prints the dequantized version of the vector and returns it;
     ///
     /// Action is not constrained in anyway
-    pub fn print(&self, fpchip: &FixedPointChip<F, PRECISION_BITS>) {
+    pub fn print(&self, fpchip: &FixedPointChip041<F, PRECISION_BITS>) {
         let dq_v = self.dequantize(fpchip);
         println!("[");
         for elem in dq_v {
@@ -79,7 +79,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkVector<F, PRECISION_BITS> {
     pub fn inner_product(
         &self,
         ctx: &mut Context<F>,
-        fpchip: &FixedPointChip<F, PRECISION_BITS>,
+        fpchip: &FixedPointChip041<F, PRECISION_BITS>,
         x: &Vec<AssignedValue<F>>,
     ) -> AssignedValue<F> {
         // couldn't figure out how to use inner_product of fpchip because we use x: &Vec and I didn't want to move
@@ -111,7 +111,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkVector<F, PRECISION_BITS> {
     pub fn _norm_square(
         &self,
         ctx: &mut Context<F>,
-        fpchip: &FixedPointChip<F, PRECISION_BITS>,
+        fpchip: &FixedPointChip041<F, PRECISION_BITS>,
     ) -> AssignedValue<F> {
         return self.inner_product(ctx, fpchip, &self.v);
     }
@@ -124,7 +124,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkVector<F, PRECISION_BITS> {
     pub fn norm(
         &self,
         ctx: &mut Context<F>,
-        fpchip: &FixedPointChip<F, PRECISION_BITS>,
+        fpchip: &FixedPointChip041<F, PRECISION_BITS>,
     ) -> AssignedValue<F> {
         let norm_sq = self._norm_square(ctx, fpchip);
         return fpchip.qsqrt(ctx, norm_sq);
@@ -136,7 +136,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkVector<F, PRECISION_BITS> {
     pub fn _dist_square(
         &self,
         ctx: &mut Context<F>,
-        fpchip: &FixedPointChip<F, PRECISION_BITS>,
+        fpchip: &FixedPointChip041<F, PRECISION_BITS>,
         x: &Vec<AssignedValue<F>>,
     ) -> AssignedValue<F> {
         assert_eq!(self.size(), x.len());
@@ -156,7 +156,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkVector<F, PRECISION_BITS> {
     pub fn dist(
         &self,
         ctx: &mut Context<F>,
-        fpchip: &FixedPointChip<F, PRECISION_BITS>,
+        fpchip: &FixedPointChip041<F, PRECISION_BITS>,
         x: &Vec<AssignedValue<F>>,
     ) -> AssignedValue<F> {
         let dist_sq = self._dist_square(ctx, fpchip, x);
@@ -169,7 +169,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkVector<F, PRECISION_BITS> {
     pub fn mul(
         &self,
         ctx: &mut Context<F>,
-        fpchip: &FixedPointChip<F, PRECISION_BITS>,
+        fpchip: &FixedPointChip041<F, PRECISION_BITS>,
         a: &ZkMatrix<F, PRECISION_BITS>,
     ) -> Self {
         assert_eq!(a.num_col, self.size());
@@ -185,7 +185,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkVector<F, PRECISION_BITS> {
     pub fn entries_less_than(
         &self,
         ctx: &mut Context<F>,
-        fpchip: &FixedPointChip<F, PRECISION_BITS>,
+        fpchip: &FixedPointChip041<F, PRECISION_BITS>,
         max_bits: usize,
     ) {
         for elem in &self.v {
@@ -199,7 +199,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkVector<F, PRECISION_BITS> {
     pub fn entries_in_desc_order(
         &self,
         ctx: &mut Context<F>,
-        fpchip: &FixedPointChip<F, PRECISION_BITS>,
+        fpchip: &FixedPointChip041<F, PRECISION_BITS>,
         max_bits: usize,
     ) {
         let mut vec_diff: Vec<AssignedValue<F>> = Vec::new();
@@ -229,7 +229,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
     /// Does not constrain the output in anyway
     pub fn new(
         ctx: &mut Context<F>,
-        fpchip: &FixedPointChip<F, PRECISION_BITS>,
+        fpchip: &FixedPointChip041<F, PRECISION_BITS>,
         matrix: &Vec<Vec<f64>>,
     ) -> Self {
         let mut zkmatrix: Vec<Vec<AssignedValue<F>>> = Vec::new();
@@ -254,7 +254,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
     /// Dequantizes the matrix and returns it;
     ///
     /// Action is not constrained in anyway
-    pub fn dequantize(&self, fpchip: &FixedPointChip<F, PRECISION_BITS>) -> Vec<Vec<f64>> {
+    pub fn dequantize(&self, fpchip: &FixedPointChip041<F, PRECISION_BITS>) -> Vec<Vec<f64>> {
         let mut dq_matrix: Vec<Vec<f64>> = Vec::new();
         for i in 0..self.num_rows {
             dq_matrix.push(Vec::<f64>::new());
@@ -269,7 +269,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
     /// Prints the dequantized version of the matrix and returns it;
     ///
     /// Action is not constrained in anyway
-    pub fn print(&self, fpchip: &FixedPointChip<F, PRECISION_BITS>) {
+    pub fn print(&self, fpchip: &FixedPointChip041<F, PRECISION_BITS>) {
         print!("[\n");
         for i in 0..self.num_rows {
             print!("[\n");
@@ -298,7 +298,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
     /// it downstream might fail in this case.
     pub fn verify_mul(
         ctx: &mut Context<F>,
-        fpchip: &FixedPointChip<F, PRECISION_BITS>,
+        fpchip: &FixedPointChip041<F, PRECISION_BITS>,
         a: &Self,
         b: &Self,
         c_s: &Vec<Vec<AssignedValue<F>>>,
@@ -353,7 +353,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
     /// appropriately bounded.
     pub fn rescale_matrix(
         ctx: &mut Context<F>,
-        fpchip: &FixedPointChip<F, PRECISION_BITS>,
+        fpchip: &FixedPointChip041<F, PRECISION_BITS>,
         c_s: &Vec<Vec<AssignedValue<F>>>,
     ) -> Self {
         // #CONSTRAINTS = 94*N^2
