@@ -1,3 +1,12 @@
+# THIS PROJECT IS CURRENTLY UNSTABLE and not fully working
+
+From `examples/svd_examples.rs::main()`
+
+* `test_zkvector` is working
+* `test_zkmatrix` is working
+* `zk_svd` is not working...
+
+  
 # Halo2-svd
 
 This repository provides functions for efficiently proving the singular value decomposition (SVD) of a real valued matrix in a Halo2 circuit. In addition, it also provides functions for manipulating real valued matrices and vectors.
