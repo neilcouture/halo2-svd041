@@ -1,6 +1,6 @@
 # THIS PROJECT IS CURRENTLY UNSTABLE and not fully working
 
-From `examples/svd_examples.rs::main()
+From `examples/svd_examples.rs::main()`
 
 * `test_zkvector` is working
 * `test_zkmatrix` is working
