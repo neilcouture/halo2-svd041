@@ -1,7 +1,6 @@
 // #![allow(warnings)]
 #![allow(dead_code)]
 
-
 // #[allow(unused_imports)]
 use halo2_base::gates::{GateChip, RangeChip};
 use halo2_base::utils::BigPrimeField;

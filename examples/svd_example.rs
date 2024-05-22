@@ -3,6 +3,11 @@
 #![allow(unused_imports)]
 use clap::Parser;
 
+use axiom_eth::rlc::{
+    chip::RlcChip, circuit::builder::RlcCircuitBuilder,
+    circuit::instructions::RlcCircuitInstructions, circuit::RlcCircuitParams, *,
+};
+use chrono;
 use halo2_base::gates::{GateChip, GateInstructions, RangeChip, RangeInstructions};
 use halo2_base::utils::{BigPrimeField, ScalarField};
 use halo2_base::AssignedValue;
@@ -26,40 +31,32 @@ use halo2_base::{
     Context,
     QuantumCell::{Constant, Existing, Witness},
 };
+use halo2_svd::matrix::test_matrix::{test_field_mat_times_vec, test_zkvector};
+use halo2_svd::matrix::*;
+use halo2_svd::svd::*;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::env::{set_var, var};
 use std::fs;
 use zk_fixed_point_chip::gadget::fixed_point041::{FixedPointChip041, FixedPointInstructions041};
-use chrono;
-use axiom_eth::rlc::{
-    circuit::instructions::RlcCircuitInstructions,
-    circuit::builder::{RlcCircuitBuilder},
-    circuit::RlcCircuitParams,
-    chip::RlcChip,
-    *,
-};
-use halo2_svd::matrix::*;
-use halo2_svd::svd::*;
-use halo2_svd::matrix::test_matrix::{test_zkvector, test_field_mat_times_vec};
 
-use rand::{rngs::StdRng, SeedableRng};
-use std::cmp;
-use std::fs::File;
-use std::io::{BufReader, BufWriter, Seek, Write};
 use axiom_eth::halo2_proofs::poly::commitment::Params;
 use halo2_base::gates::circuit::builder::BaseCircuitBuilder;
 use halo2_base::gates::circuit::{BaseCircuitParams, CircuitBuilderStage};
 use halo2_base::utils::testing::{check_proof, gen_proof};
 use halo2_proofs::plonk::Fixed;
+use rand::{rngs::StdRng, SeedableRng};
+use std::cmp;
+use std::fs::File;
+use std::io::{BufReader, BufWriter, Seek, Write};
 use zk_fixed_point_chip::scaffold::cmd::{Cli, SnarkCmd};
 
 //pub mod halo2_svd::utils;
 use halo2_svd::utils::executor::{RlcCircuit, RlcExecutor};
 
-use core::marker::PhantomData;
 use axiom_eth::rlp::RlpChip;
+use core::marker::PhantomData;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CircuitInput {
@@ -70,15 +67,20 @@ pub struct CircuitInput {
 }
 const K: usize = 20;
 const PRECISION_BITS: u32 = 42;
-struct SVDExample<'a, F: ScalarField> where F: BigPrimeField {
+struct SVDExample<'a, F: ScalarField>
+where
+    F: BigPrimeField,
+{
     pub d: &'a Vec<f64>,
     pub m: &'a Vec<Vec<f64>>,
     pub u: &'a Vec<Vec<f64>>,
     pub v: &'a Vec<Vec<f64>>,
-    marker : PhantomData<F>,
+    marker: PhantomData<F>,
 }
-struct SVDPayload<F: ScalarField> where F: BigPrimeField {
-
+struct SVDPayload<F: ScalarField>
+where
+    F: BigPrimeField,
+{
     u_t: ZkMatrix<F, PRECISION_BITS>,
     v_t: ZkMatrix<F, PRECISION_BITS>,
     m: ZkMatrix<F, PRECISION_BITS>,
@@ -88,19 +90,22 @@ struct SVDPayload<F: ScalarField> where F: BigPrimeField {
     u_times_ut: Vec<Vec<AssignedValue<F>>>,
     v_times_vt: Vec<Vec<AssignedValue<F>>>,
 }
-impl<'a, F: ScalarField> RlcCircuitInstructions<F> for SVDExample<'a, F> where F: BigPrimeField {
+impl<'a, F: ScalarField> RlcCircuitInstructions<F> for SVDExample<'a, F>
+where
+    F: BigPrimeField,
+{
     type FirstPhasePayload = SVDPayload<F>;
     fn virtual_assign_phase0(
         &self,
         builder: &mut RlcCircuitBuilder<F>,
         rc: &RangeChip<F>,
     ) -> Self::FirstPhasePayload {
-
-        let degree: usize = var("DEGREE").unwrap_or_else(|_| panic!("DEGREE not set")).parse().unwrap();
+        let degree: usize =
+            var("DEGREE").unwrap_or_else(|_| panic!("DEGREE not set")).parse().unwrap();
         let lookup_bits: usize =
             var("LOOKUP_BITS").unwrap_or_else(|_| panic!("LOOKUP_BITS not set")).parse().unwrap();
 
-        let ctx : &mut Context<F> = builder.base.main(0);
+        let ctx: &mut Context<F> = builder.base.main(0);
 
         println!("{:?} phase0::1.", chrono::offset::Local::now());
         // see [Error Analysis for SVD.pdf] for how the following parameters should be chosen
@@ -125,7 +130,6 @@ impl<'a, F: ScalarField> RlcCircuitInstructions<F> for SVDExample<'a, F> where F
         let v = self.v.clone();
         let d = self.d.clone();
 
-
         let mut fpchip = FixedPointChip041::<F, PRECISION_BITS>::new(lookup_bits);
         fpchip.set_range_chip(rc);
 
@@ -143,15 +147,19 @@ impl<'a, F: ScalarField> RlcCircuitInstructions<F> for SVDExample<'a, F> where F
         let max_dim = cmp::max(m.num_rows, m.num_col);
 
         let (err_svd, err_u) = err_calc(PRECISION_BITS, max_dim, MAX_NORM, EPS_SVD, EPS_U);
-        println!("{:?} do_zk_svd::4, m, u,v, d error calculated err_svd:{:?} err_u:{:?}",
-                 chrono::offset::Local::now(), err_svd, err_u);
+        println!(
+            "{:?} do_zk_svd::4, m, u,v, d error calculated err_svd:{:?} err_u:{:?}",
+            chrono::offset::Local::now(),
+            err_svd,
+            err_u
+        );
         //let fship = &fpchip;
 
         let mut ctx2 = ctx.clone();
         let (u_t, v_t, m_times_vt, u_times_ut, v_times_vt) =
             check_svd_phase0(&mut ctx2, &fpchip, &m, &u, &v, &d, err_svd, err_u, 30);
 
-        SVDPayload{u_t, v_t, m, u, v, m_times_vt, u_times_ut, v_times_vt}
+        SVDPayload { u_t, v_t, m, u, v, m_times_vt, u_times_ut, v_times_vt }
     }
 
     fn virtual_assign_phase1(
@@ -193,7 +201,6 @@ impl<'a, F: ScalarField> RlcCircuitInstructions<F> for SVDExample<'a, F> where F
 }
 
 // */
-
 fn test_params() -> RlcCircuitParams {
     RlcCircuitParams {
         base: BaseCircuitParams {
@@ -222,19 +229,15 @@ fn rlc_svd_circuit(
     RlcExecutor::new(builder, svde)
 }
 
-
-
-pub fn do_zk_svd(
-    input: CircuitInput,
-) -> Result<(), Error> {
-
+pub fn do_zk_svd(input: CircuitInput) -> Result<(), Error> {
     let pd = PhantomData::<Fr>::default();
 
     // fixme hardcodede lookup b its
     let lookup_bits: usize =
         var("LOOKUP_BITS").unwrap_or_else(|_| panic!("LOOKUP_BITS not set")).parse().unwrap();
 
-    let svde: SVDExample<Fr> = SVDExample{m:&input.m, u:&input.u, v:&input.v, d:&input.d, marker:pd};
+    let svde: SVDExample<Fr> =
+        SVDExample { m: &input.m, u: &input.u, v: &input.v, d: &input.d, marker: pd };
     println!("{:?} do_zk_svd::5, SVDExample  created... ", chrono::offset::Local::now());
     let mut rng = StdRng::from_seed([0u8; 32]);
     let k = K as u32;
@@ -253,12 +256,7 @@ pub fn do_zk_svd(
     // let res = pp.write(&mut writer);
     // writer.flush();
 
-
-
-    let file = File::options()
-        .read(true)
-        .write(false)
-        .open("/datasets/kzg_params.txt")?;
+    let file = File::options().read(true).write(false).open("/datasets/kzg_params.txt")?;
     // let ll = file.l();
     // println!("do_zk_svd:: ll, ParamsKZG  created... len {:?}", ll);
     let mut reader = BufReader::new(file);
@@ -270,12 +268,13 @@ pub fn do_zk_svd(
 
     println!("{:?} do_zk_svd::Will invoke rlc_svd_circuit...", chrono::offset::Local::now());
 
-    let vv : Vec<Vec<Fr>> = vec![vec![]];
-    let  circuitm = rlc_svd_circuit(CircuitBuilderStage::Mock, svde);
+    let vv: Vec<Vec<Fr>> = vec![vec![]];
+    let circuitm = rlc_svd_circuit(CircuitBuilderStage::Mock, svde);
     let r = MockProver::run(K as u32, &circuitm, vec![vec![]]);
 
-    let svde: SVDExample<Fr> = SVDExample{m:&input.m, u:&input.u, v:&input.v, d:&input.d, marker:pd};
-    let  circuit = rlc_svd_circuit(CircuitBuilderStage::Keygen, svde);
+    let svde: SVDExample<Fr> =
+        SVDExample { m: &input.m, u: &input.u, v: &input.v, d: &input.d, marker: pd };
+    let circuit = rlc_svd_circuit(CircuitBuilderStage::Keygen, svde);
     println!("{:?} vk gen started...", chrono::offset::Local::now());
     let vk = keygen_vk(&params, &circuit)?;
 
@@ -286,10 +285,13 @@ pub fn do_zk_svd(
     let break_points = circuit.0.builder.borrow().break_points();
     drop(circuit);
     println!();
-    println!("{:?} ==============STARTING PROOF GEN===================", chrono::offset::Local::now());
+    println!(
+        "{:?} ==============STARTING PROOF GEN===================",
+        chrono::offset::Local::now()
+    );
     let pd = PhantomData::<Fr>::default();
 
-    let svde2 = SVDExample{m:&input.m, u:&input.u, v:&input.v, d:&input.d, marker:pd};
+    let svde2 = SVDExample { m: &input.m, u: &input.u, v: &input.v, d: &input.d, marker: pd };
     let circuit = rlc_svd_circuit(CircuitBuilderStage::Prover, svde2);
     circuit.0.builder.borrow_mut().set_break_points(break_points);
     let proof = gen_proof(&params, &pk, circuit);
@@ -328,10 +330,12 @@ fn main() {
     let input: CircuitInput = serde_json::from_str(&data).expect("JSON was not well-formatted");
     println!("data loaded...");
 
-    let mut rbcb :RlcCircuitBuilder<Fr> = RlcCircuitBuilder::new(true, 15);
+    let mut rbcb: RlcCircuitBuilder<Fr> = RlcCircuitBuilder::new(true, 15);
     rbcb.set_k(k);
     rbcb.set_lookup_bits(lb);
 
+    // FIXME put this in test file or as ARGS to application.
+    // simple selector for what code to run
     let task = 3;
     // run test_zkvector
     if task == 1 {

@@ -1,4 +1,9 @@
-
+use crate::matrix::*;
+use axiom_eth::rlc::{
+    chip::RlcChip, circuit::builder::RlcCircuitBuilder,
+    circuit::instructions::RlcCircuitInstructions, circuit::RlcCircuitParams, *,
+};
+use chrono;
 use halo2_base::gates::{GateChip, GateInstructions, RangeChip, RangeInstructions};
 use halo2_base::utils::{BigPrimeField, ScalarField};
 use halo2_base::AssignedValue;
@@ -28,22 +33,10 @@ use std::env;
 use std::env::{set_var, var};
 use std::fs;
 use zk_fixed_point_chip::gadget::fixed_point041::{FixedPointChip041, FixedPointInstructions041};
-use chrono;
-use axiom_eth::rlc::{
-    circuit::instructions::RlcCircuitInstructions,
-    circuit::builder::{RlcCircuitBuilder},
-    circuit::RlcCircuitParams,
-    chip::RlcChip,
-    *,
-};
-use crate::matrix::*;
-
 
 /// simple tests to make sure zkvector is okay; can also be randomized
 
-pub fn test_zkvector(
-    mut builder: RlcCircuitBuilder<Fr>)
-{
+pub fn test_zkvector(mut builder: RlcCircuitBuilder<Fr>) {
     // lookup bits must agree with the size of the lookup table, which is specified by an environmental variable
     let lookup_bits =
         var("LOOKUP_BITS").unwrap_or_else(|_| panic!("LOOKUP_BITS not set")).parse().unwrap();
@@ -53,7 +46,7 @@ pub fn test_zkvector(
     let mut fpchip = FixedPointChip041::<Fr, PRECISION_BITS>::new(lookup_bits);
 
     fpchip.set_range_chip(&gate);
-    let ctx : &mut Context<Fr> = builder.base.main(0);
+    let ctx: &mut Context<Fr> = builder.base.main(0);
 
     const N: usize = 5;
     const M: usize = 4;
@@ -204,20 +197,17 @@ pub fn test_zkvector(
     zku2.print(&fpchip);
 } //*/
 
-
 /// useful for optimising cost and testing
-pub fn test_field_mat_times_vec(
-    mut builder: RlcCircuitBuilder<Fr>)
-{
+pub fn test_field_mat_times_vec(mut builder: RlcCircuitBuilder<Fr>) {
     // lookup bits must agree with the size of the lookup table, which is specified by an environmental variable
     let lookup_bits =
         var("LOOKUP_BITS").unwrap_or_else(|_| panic!("LOOKUP_BITS not set")).parse().unwrap();
     const PRECISION_BITS: u32 = 32;
     let gate = builder.range_chip();
     // fixed-point exp arithmetic
-    let mut fpchip = FixedPointChip041::<Fr, PRECISION_BITS>::new( lookup_bits);
+    let mut fpchip = FixedPointChip041::<Fr, PRECISION_BITS>::new(lookup_bits);
     fpchip.set_range_chip(&gate);
-    let ctx : &mut Context<Fr> = builder.base.main(0);
+    let ctx: &mut Context<Fr> = builder.base.main(0);
 
     const N: usize = 5;
     const M: usize = 5;

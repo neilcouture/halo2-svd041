@@ -61,7 +61,8 @@ futures = { version = "0.3", optional = true }
 #num-traits = "0.2.18"
 
 #zk_fixed_point_chip = { path = "../ZKFixedPointChip041", version = "0.2.0" }
-zk_fixed_point_chip = {git ="https://github.com/neilcouture/ZKFixedPointChip041", branch = "main"}
+zk_fixed_point_chip = {git ="https://github.com/neilcouture/ZKFixedPointChip041"}
+
 chrono = "0.4.38"
 
 [dev-dependencies]

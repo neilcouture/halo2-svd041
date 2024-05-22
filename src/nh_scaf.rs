@@ -7,20 +7,17 @@ use std::time::{Duration, Instant};
 
 use axiom_eth::snark_verifier::loader::native::NativeLoader;
 
-use snark_verifier_sdk::{CircuitExt, gen_pk, read_pk};
-use snark_verifier_sdk::halo2::{gen_snark_shplonk, PoseidonTranscript, read_snark};
 use crate::scaffold::cmd::{Cli, SnarkCmd};
-use halo2_base::utils::{ScalarField, BigPrimeField};
+use halo2_base::utils::{BigPrimeField, ScalarField};
 use halo2_base::{
-    AssignedValue,
     gates::{
-        circuit::{BaseCircuitParams, builder::BaseCircuitBuilder, CircuitBuilderStage},
+        circuit::{builder::BaseCircuitBuilder, BaseCircuitParams, CircuitBuilderStage},
         flex_gate::MultiPhaseThreadBreakPoints,
     },
     halo2_proofs::{
         dev::MockProver,
         halo2curves::bn256::{Bn256, Fr, G1Affine},
-        plonk::{Circuit, ProvingKey, verify_proof, VerifyingKey},
+        plonk::{verify_proof, Circuit, ProvingKey, VerifyingKey},
         poly::{
             commitment::{Params, ParamsProver},
             kzg::{
@@ -32,20 +29,21 @@ use halo2_base::{
         SerdeFormat,
     },
     utils::fs::gen_srs,
+    AssignedValue,
 };
-
+use snark_verifier_sdk::halo2::{gen_snark_shplonk, read_snark, PoseidonTranscript};
+use snark_verifier_sdk::{gen_pk, read_pk, CircuitExt};
 
 trait NHZKPrivate<F> {
     fn data(&self) -> (Vec<F>, F, Vec<Vec<f64>>, Vec<f64>, f64);
 }
 
 pub struct NHCircuitInput<F> {
-    pub data : (Vec<F>, F, Vec<Vec<f64>>, Vec<f64>, f64),
+    pub data: (Vec<F>, F, Vec<Vec<f64>>, Vec<f64>, f64),
 }
 
 impl<F: BigPrimeField> NHZKPrivate<F> for NHCircuitInput<F> {
-    fn data(&self) -> (Vec<F>, F, Vec<Vec<f64>>, Vec<f64>, f64)
-    {
+    fn data(&self) -> (Vec<F>, F, Vec<Vec<f64>>, Vec<f64>, f64) {
         self.data.clone()
     }
 }
@@ -62,22 +60,25 @@ pub struct NHCircuitScaffold<F, Fn> {
     private_inputs: (Vec<F>, F, Vec<Vec<f64>>, Vec<f64>, f64),
 }
 
-
 pub fn run_nh<T: BigPrimeField, N: NHZKPrivate<T>>(
-    f: impl FnOnce(&mut BaseCircuitBuilder<Fr>, (Vec<T>, T, Vec<Vec<f64>>, Vec<f64>, f64), &mut Vec<AssignedValue<Fr>>),
+    f: impl FnOnce(
+        &mut BaseCircuitBuilder<Fr>,
+        (Vec<T>, T, Vec<Vec<f64>>, Vec<f64>, f64),
+        &mut Vec<AssignedValue<Fr>>,
+    ),
     data: N,
-    cli: Cli )
-{
+    cli: Cli,
+) {
     //let dd : (Vec<T>, T, Vec<Vec<f64>>, Vec<f64>, f64) = data.data();
     run_on_inputs_nh(f, cli, data);
 }
-
 
 pub fn run_on_inputs_nh<T: BigPrimeField, N: NHZKPrivate<T>>(
     f: impl FnOnce(
         &mut BaseCircuitBuilder<Fr>,
         (Vec<T>, T, Vec<Vec<f64>>, Vec<f64>, f64),
-        &mut Vec<AssignedValue<Fr>>),
+        &mut Vec<AssignedValue<Fr>>,
+    ),
     cli: Cli,
     data: N,
 ) {
@@ -101,8 +102,10 @@ pub fn run_on_inputs_nh<T: BigPrimeField, N: NHZKPrivate<T>>(
                 CircuitBuilderStage::Mock,
                 None,
                 &params,
-                &mut assigned_instances);
-            MockProver::run(k, &circuit, circuit.instances()).unwrap().assert_satisfied();                          // MOCK
+                &mut assigned_instances,
+            );
+            MockProver::run(k, &circuit, circuit.instances()).unwrap().assert_satisfied();
+            // MOCK
         }
         SnarkCmd::Keygen => {
             let pk_path = data_path.join(PathBuf::from(format!("{name}.pk")));
@@ -112,7 +115,11 @@ pub fn run_on_inputs_nh<T: BigPrimeField, N: NHZKPrivate<T>>(
             let pinning_path = config_path.join(PathBuf::from(format!("{name}.json")));
             let mut assigned_instances = vec![];
             let circuit = precircuit.create_circuit(
-                CircuitBuilderStage::Keygen, None, &params, &mut assigned_instances);  // KEYGEN
+                CircuitBuilderStage::Keygen,
+                None,
+                &params,
+                &mut assigned_instances,
+            ); // KEYGEN
 
             // generate Proving Key ==> circuit used, i.e. f invoked
             let pk = gen_pk(&params, &circuit, None);
@@ -151,8 +158,12 @@ pub fn run_on_inputs_nh<T: BigPrimeField, N: NHZKPrivate<T>>(
 
             let mut assigned_instances = vec![];
 
-            let circuit =
-                precircuit.create_circuit(CircuitBuilderStage::Prover, Some(pinning), &params, &mut assigned_instances);                  // PROVE
+            let circuit = precircuit.create_circuit(
+                CircuitBuilderStage::Prover,
+                Some(pinning),
+                &params,
+                &mut assigned_instances,
+            ); // PROVE
             let pk_path = data_path.join(PathBuf::from(format!("{name}.pk")));
             let pk = nh_custom_read_pk(pk_path, &circuit);
             let snark_path = data_path.join(PathBuf::from(format!("{name}.snark")));
@@ -170,7 +181,11 @@ pub fn run_on_inputs_nh<T: BigPrimeField, N: NHZKPrivate<T>>(
             let vk_path = data_path.join(PathBuf::from(format!("{name}.vk")));
             let mut assigned_instances = vec![];
             let mut circuit = precircuit.create_circuit(
-                CircuitBuilderStage::Keygen, None, &params, &mut assigned_instances);     // VERIFY
+                CircuitBuilderStage::Keygen,
+                None,
+                &params,
+                &mut assigned_instances,
+            ); // VERIFY
             let vk = nh_custom_read_vk(vk_path, &circuit);
             let snark_path = data_path.join(PathBuf::from(format!("{name}.snark")));
             let snark = read_snark(&snark_path)
@@ -189,7 +204,7 @@ pub fn run_on_inputs_nh<T: BigPrimeField, N: NHZKPrivate<T>>(
                 _,
                 SingleStrategy<'_, Bn256>,
             >(verifier_params, &vk, strategy, &[&[instance]], &mut transcript)
-                .unwrap();
+            .unwrap();
             let verification_time = start.elapsed();
             println!("Snark verified successfully in {:?}", verification_time);
             circuit.clear();
@@ -197,17 +212,17 @@ pub fn run_on_inputs_nh<T: BigPrimeField, N: NHZKPrivate<T>>(
     }
 }
 
-
 pub fn nh_proove_verify<T: BigPrimeField, N: NHZKPrivate<T>>(
     f: impl FnOnce(
         &mut BaseCircuitBuilder<Fr>,
         (Vec<T>, T, Vec<Vec<f64>>, Vec<f64>, f64),
-        &mut Vec<AssignedValue<Fr>>),
+        &mut Vec<AssignedValue<Fr>>,
+    ),
     cli: Cli,
     data: N,
 ) -> Vec<Fr> {
     let private_inputs = data.data();
-    let mut precircuit = NHCircuitScaffold { f, private_inputs};
+    let mut precircuit = NHCircuitScaffold { f, private_inputs };
 
     let name = cli.name;
     let k = cli.degree;
@@ -237,8 +252,12 @@ pub fn nh_proove_verify<T: BigPrimeField, N: NHZKPrivate<T>>(
 
             let mut assigned_instances = vec![];
 
-            let circuit =
-                precircuit.create_circuit(CircuitBuilderStage::Prover, Some(pinning), &params, &mut assigned_instances);                  // PROVE
+            let circuit = precircuit.create_circuit(
+                CircuitBuilderStage::Prover,
+                Some(pinning),
+                &params,
+                &mut assigned_instances,
+            ); // PROVE
 
             let pk_path = data_path.join(PathBuf::from(format!("{name}.pk")));
             let pk = nh_custom_read_pk(pk_path, &circuit);
@@ -261,7 +280,11 @@ pub fn nh_proove_verify<T: BigPrimeField, N: NHZKPrivate<T>>(
             let vk_path = data_path.join(PathBuf::from(format!("{name}.vk")));
             let mut assigned_instances = vec![];
             let mut circuit = precircuit.create_circuit(
-                CircuitBuilderStage::Keygen, None, &params, &mut assigned_instances);     // VERIFY
+                CircuitBuilderStage::Keygen,
+                None,
+                &params,
+                &mut assigned_instances,
+            ); // VERIFY
             let vk = nh_custom_read_vk(vk_path, &circuit);
             let snark_path = data_path.join(PathBuf::from(format!("{name}.snark")));
             let snark = read_snark(&snark_path)
@@ -280,27 +303,26 @@ pub fn nh_proove_verify<T: BigPrimeField, N: NHZKPrivate<T>>(
                 _,
                 SingleStrategy<'_, Bn256>,
             >(verifier_params, &vk, strategy, &[&[instance]], &mut transcript)
-                .unwrap();
+            .unwrap();
             let verification_time = start.elapsed();
             println!("Snark verified successfully in {:?}", verification_time);
             circuit.clear();
 
             vec![]
-        }
-        // SnarkCmd::Verify => {
-        //     println!("Verify should not be used with nh_proove_verify");
-        //     vec![]
-        // }
+        } // SnarkCmd::Verify => {
+          //     println!("Verify should not be used with nh_proove_verify");
+          //     vec![]
+          // }
     }
 }
 
-
-
 impl<T, Fn> NHCircuitScaffold<T, Fn>
-    where
-        Fn: FnOnce(&mut BaseCircuitBuilder<Fr>,
-            (Vec<T>, T, Vec<Vec<f64>>, Vec<f64>, f64),
-            &mut Vec<AssignedValue<Fr>>),
+where
+    Fn: FnOnce(
+        &mut BaseCircuitBuilder<Fr>,
+        (Vec<T>, T, Vec<Vec<f64>>, Vec<f64>, f64),
+        &mut Vec<AssignedValue<Fr>>,
+    ),
 {
     /// Creates a Halo2 circuit from the given function.
     fn create_circuit(
@@ -308,9 +330,8 @@ impl<T, Fn> NHCircuitScaffold<T, Fn>
         stage: CircuitBuilderStage,
         pinning: Option<(BaseCircuitParams, MultiPhaseThreadBreakPoints)>,
         params: &ParamsKZG<Bn256>,
-        assigned_instances: &mut Vec<AssignedValue<Fr>>
-    ) -> BaseCircuitBuilder<Fr>
-    {
+        assigned_instances: &mut Vec<AssignedValue<Fr>>,
+    ) -> BaseCircuitBuilder<Fr> {
         let mut builder = BaseCircuitBuilder::from_stage(stage);
         if let Some((params, break_points)) = pinning {
             builder.set_params(params);
@@ -361,20 +382,19 @@ impl<T, Fn> NHCircuitScaffold<T, Fn>
     }
 }
 
-
 fn nh_custom_read_pk<C, P>(fname: P, circuit: &C) -> ProvingKey<G1Affine>
-    where
-        C: Circuit<Fr>,
-        P: AsRef<Path>,
+where
+    C: Circuit<Fr>,
+    P: AsRef<Path>,
 {
     read_pk::<C>(fname.as_ref(), circuit.params())
         .unwrap_or_else(|e| panic!("Failed to open file: {:?}: {e:?}", fname.as_ref()))
 }
 
 fn nh_custom_read_vk<C, P>(fname: P, circuit: &C) -> VerifyingKey<G1Affine>
-    where
-        C: Circuit<Fr>,
-        P: AsRef<Path>,
+where
+    C: Circuit<Fr>,
+    P: AsRef<Path>,
 {
     let f = File::open(&fname)
         .unwrap_or_else(|e| panic!("Failed to open file: {:?}: {e:?}", fname.as_ref()));

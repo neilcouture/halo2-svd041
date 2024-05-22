@@ -5,15 +5,15 @@ pub mod test_matrix;
 
 // #[allow(unused_imports)]
 use halo2_base::gates::{GateChip, GateInstructions, RangeChip, RangeInstructions};
+use halo2_base::poseidon::hasher::spec::OptimizedPoseidonSpec;
+use halo2_base::poseidon::PoseidonChip;
 use halo2_base::utils::{biguint_to_fe, BigPrimeField};
 use halo2_base::{AssignedValue, QuantumCell};
 use halo2_base::{
     Context,
     QuantumCell::{Constant, Existing},
 };
-use halo2_base::poseidon::hasher::spec::OptimizedPoseidonSpec;
 use num_bigint::BigUint;
-use halo2_base::poseidon::PoseidonChip;
 use zk_fixed_point_chip::gadget::fixed_point041::{FixedPointChip041, FixedPointInstructions041};
 
 #[derive(Clone)]
@@ -374,7 +374,7 @@ impl<F: BigPrimeField, const PRECISION_BITS: u32> ZkMatrix<F, PRECISION_BITS> {
         return Self { matrix: c, num_rows: num_rows, num_col: num_col };
     }
     /// hash all the matrices in the given list
-  /*  pub fn hash_matrix_list(
+    /*  pub fn hash_matrix_list(
         ctx: &mut Context<F>,
         gate: &GateChip<F>,
         matrix_list: &Vec<Self>,

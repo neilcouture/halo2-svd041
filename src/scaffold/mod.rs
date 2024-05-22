@@ -3,15 +3,14 @@
 //! We recommend not reading this module on first (or second) pass.
 // use ark_std::{end_timer, start_timer};
 use halo2_base::{
-    AssignedValue,
     gates::{
-        circuit::{BaseCircuitParams, builder::BaseCircuitBuilder, CircuitBuilderStage},
+        circuit::{builder::BaseCircuitBuilder, BaseCircuitParams, CircuitBuilderStage},
         flex_gate::MultiPhaseThreadBreakPoints,
     },
     halo2_proofs::{
         dev::MockProver,
         halo2curves::bn256::{Bn256, Fr, G1Affine},
-        plonk::{Circuit, ProvingKey, verify_proof, VerifyingKey},
+        plonk::{verify_proof, Circuit, ProvingKey, VerifyingKey},
         poly::{
             commitment::{Params, ParamsProver},
             kzg::{
@@ -23,12 +22,13 @@ use halo2_base::{
         SerdeFormat,
     },
     utils::fs::gen_srs,
+    AssignedValue,
 };
 use serde::de::DeserializeOwned;
 use snark_verifier_sdk::{
-    CircuitExt,
     gen_pk,
-    halo2::{gen_snark_shplonk, PoseidonTranscript, read_snark}, NativeLoader, read_pk,
+    halo2::{gen_snark_shplonk, read_snark, PoseidonTranscript},
+    read_pk, CircuitExt, NativeLoader,
 };
 use std::{
     env::var,
@@ -47,7 +47,6 @@ pub struct CircuitScaffold<T, Fn> {
     private_inputs: T,
 }
 
-
 pub fn run<T: DeserializeOwned>(
     f: impl FnOnce(&mut BaseCircuitBuilder<Fr>, T, &mut Vec<AssignedValue<Fr>>),
     cli: Cli,
@@ -59,15 +58,12 @@ pub fn run<T: DeserializeOwned>(
         File::open(&input_path)
             .unwrap_or_else(|e| panic!("Input file not found at {input_path:?}. {e:?}")),
     )
-        .expect("Input file should be a valid JSON file");
+    .expect("Input file should be a valid JSON file");
     run_on_inputs(f, cli, private_inputs)
 }
 
 pub fn run_on_inputs<T: DeserializeOwned>(
-    f: impl FnOnce(
-        &mut BaseCircuitBuilder<Fr>,
-        T,
-        &mut Vec<AssignedValue<Fr>>),
+    f: impl FnOnce(&mut BaseCircuitBuilder<Fr>, T, &mut Vec<AssignedValue<Fr>>),
     cli: Cli,
     private_inputs: T,
 ) {
@@ -85,11 +81,9 @@ pub fn run_on_inputs<T: DeserializeOwned>(
     println!("Universal trusted setup (unsafe!) available at: params/kzg_bn254_{k}.srs");
     match cli.command {
         SnarkCmd::Mock => {
-            let circuit = precircuit.create_circuit(
-                CircuitBuilderStage::Mock,
-                None,
-                &params);
-            MockProver::run(k, &circuit, circuit.instances()).unwrap().assert_satisfied();                          // MOCK
+            let circuit = precircuit.create_circuit(CircuitBuilderStage::Mock, None, &params);
+            MockProver::run(k, &circuit, circuit.instances()).unwrap().assert_satisfied();
+            // MOCK
         }
         SnarkCmd::Keygen => {
             let pk_path = data_path.join(PathBuf::from(format!("{name}.pk")));
@@ -97,7 +91,7 @@ pub fn run_on_inputs<T: DeserializeOwned>(
                 fs::remove_file(&pk_path).unwrap();
             }
             let pinning_path = config_path.join(PathBuf::from(format!("{name}.json")));
-            let circuit = precircuit.create_circuit(CircuitBuilderStage::Keygen, None, &params);  // KEYGEN
+            let circuit = precircuit.create_circuit(CircuitBuilderStage::Keygen, None, &params); // KEYGEN
 
             // generate Proving Key ==> circuit used, i.e. f invoked
             let pk = gen_pk(&params, &circuit, None);
@@ -134,7 +128,7 @@ pub fn run_on_inputs<T: DeserializeOwned>(
             let pinning: (BaseCircuitParams, MultiPhaseThreadBreakPoints) =
                 serde_json::from_reader(&mut pinning_file).expect("Could not read pinning file");
             let circuit =
-                precircuit.create_circuit(CircuitBuilderStage::Prover, Some(pinning), &params);                  // PROVE
+                precircuit.create_circuit(CircuitBuilderStage::Prover, Some(pinning), &params); // PROVE
             let pk_path = data_path.join(PathBuf::from(format!("{name}.pk")));
             let pk = custom_read_pk(pk_path, &circuit);
             let snark_path = data_path.join(PathBuf::from(format!("{name}.snark")));
@@ -150,7 +144,7 @@ pub fn run_on_inputs<T: DeserializeOwned>(
         }
         SnarkCmd::Verify => {
             let vk_path = data_path.join(PathBuf::from(format!("{name}.vk")));
-            let mut circuit = precircuit.create_circuit(CircuitBuilderStage::Keygen, None, &params);     // VERIFY
+            let mut circuit = precircuit.create_circuit(CircuitBuilderStage::Keygen, None, &params); // VERIFY
             let vk = custom_read_vk(vk_path, &circuit);
             let snark_path = data_path.join(PathBuf::from(format!("{name}.snark")));
             let snark = read_snark(&snark_path)
@@ -169,7 +163,7 @@ pub fn run_on_inputs<T: DeserializeOwned>(
                 _,
                 SingleStrategy<'_, Bn256>,
             >(verifier_params, &vk, strategy, &[&[instance]], &mut transcript)
-                .unwrap();
+            .unwrap();
             let verification_time = start.elapsed();
             println!("Snark verified successfully in {:?}", verification_time);
             circuit.clear();
@@ -178,18 +172,18 @@ pub fn run_on_inputs<T: DeserializeOwned>(
 }
 
 fn custom_read_pk<C, P>(fname: P, circuit: &C) -> ProvingKey<G1Affine>
-    where
-        C: Circuit<Fr>,
-        P: AsRef<Path>,
+where
+    C: Circuit<Fr>,
+    P: AsRef<Path>,
 {
     read_pk::<C>(fname.as_ref(), circuit.params())
         .unwrap_or_else(|e| panic!("Failed to open file: {:?}: {e:?}", fname.as_ref()))
 }
 
 fn custom_read_vk<C, P>(fname: P, circuit: &C) -> VerifyingKey<G1Affine>
-    where
-        C: Circuit<Fr>,
-        P: AsRef<Path>,
+where
+    C: Circuit<Fr>,
+    P: AsRef<Path>,
 {
     let f = File::open(&fname)
         .unwrap_or_else(|e| panic!("Failed to open file: {:?}: {e:?}", fname.as_ref()));
@@ -199,8 +193,8 @@ fn custom_read_vk<C, P>(fname: P, circuit: &C) -> VerifyingKey<G1Affine>
 }
 
 impl<T, Fn> CircuitScaffold<T, Fn>
-    where
-        Fn: FnOnce(&mut BaseCircuitBuilder<Fr>, T, &mut Vec<AssignedValue<Fr>>),
+where
+    Fn: FnOnce(&mut BaseCircuitBuilder<Fr>, T, &mut Vec<AssignedValue<Fr>>),
 {
     /// Creates a Halo2 circuit from the given function.
     fn create_circuit(
@@ -256,5 +250,3 @@ impl<T, Fn> CircuitScaffold<T, Fn>
         builder
     }
 }
-
-
